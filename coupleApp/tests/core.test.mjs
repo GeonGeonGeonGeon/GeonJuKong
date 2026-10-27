@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { monthGrid,dateKey,nextDay,validateRecord,escapeHtml,googleEvent,safeFileType,eventOnDate } from '../src/core.js';
+test('달력은 일요일부터 시작하며 윤년 2월 29일을 포함한다',()=>{const days=monthGrid(2024,1);assert.equal(days.length,42);assert.equal(days[0].key,'2024-01-28');assert.equal(days.filter(d=>d.current).length,29);assert.ok(days.some(d=>d.key==='2024-02-29'));});
+test('12월에서 다음 해로 이동하고 월말과 윤년을 처리한다',()=>{assert.equal(nextDay('2024-02-28'),'2024-02-29');assert.equal(nextDay('2025-12-31'),'2026-01-01');assert.equal(dateKey(new Date(2026,0,1)),'2026-01-01');});
+test('빈 내용과 잘못된 날짜/시간 및 부모 없는 댓글을 거부한다',()=>{for(const[kind,data]of[['diary',{text:' ',date:'2026-10-26'}],['post',{title:'제목',date:'2026-02-30'}],['event',{title:'약속',date:'2026-10-26',time:'25:00'}],['comment',{text:'댓글'}],['message',{text:'x'.repeat(10001)}]])assert.throws(()=>validateRecord(kind,data));});
+test('공개 일기, 댓글과 메시지의 정상 입력을 받는다',()=>{for(const[kind,data]of[['diary',{text:'오늘도 좋아',date:'2026-10-26'}],['comment',{text:'좋아',postId:'123'}],['message',{text:'안녕'}]])assert.deepEqual(validateRecord(kind,data),data);});
+test('사용자 글의 HTML과 속성 삽입을 이스케이프한다',()=>{assert.equal(escapeHtml('<img onerror="x"> & \'a\''),'&lt;img onerror=&quot;x&quot;&gt; &amp; &#39;a&#39;');});
+test('Google 종일 일정과 취소된 일정을 구분한다',()=>{const row=googleEvent({id:'a',summary:'산책',start:{date:'2026-10-26'},end:{date:'2026-10-27'}});assert.equal(row.data.date,'2026-10-26');assert.equal(row.data.time,'');assert.equal(googleEvent({status:'cancelled',start:{date:'2026-10-26'}}),null);});
+test('원본 사진/영상 허용, 실행 가능한 SVG/HTML과 빈 파일 거부',()=>{assert.equal(safeFileType({type:'video/quicktime',size:100}),'video/quicktime');assert.equal(safeFileType({type:'image/heic',size:100}),'image/heic');for(const type of ['image/svg+xml','text/html','application/javascript'])assert.throws(()=>safeFileType({type,size:1}));assert.throws(()=>safeFileType({type:'image/png',size:0}));});
+test('여러 날의 종일 일정은 Google의 종료일을 제외하고 표시한다',()=>{const row={data:{date:'2026-10-26',end:{date:'2026-10-29'}}};assert.equal(eventOnDate(row,'2026-10-25'),false);assert.equal(eventOnDate(row,'2026-10-27'),true);assert.equal(eventOnDate(row,'2026-10-29'),false);});
+test('종료일이 앞서거나 종료 시간이 시작보다 이르면 저장을 거부한다',()=>{assert.throws(()=>validateRecord('event',{title:'약속',date:'2026-10-26',endDate:'2026-10-25'}));assert.throws(()=>validateRecord('event',{title:'약속',date:'2026-10-26',time:'19:00',endDate:'2026-10-26',endTime:'18:00'}));});

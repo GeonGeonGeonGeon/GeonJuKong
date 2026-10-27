@@ -1,0 +1,25 @@
+{
+  "name": "geonjukong", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": {
+    "dev": "node --preserve-symlinks --preserve-symlinks-main scripts/serve.mjs",
+    "start": "node --preserve-symlinks --preserve-symlinks-main scripts/serve.mjs",
+    "build": "node --preserve-symlinks --preserve-symlinks-main scripts/build.mjs",
+    "native:bundle": "node --preserve-symlinks --preserve-symlinks-main scripts/native.mjs bundle",
+    "native:android": "node --preserve-symlinks --preserve-symlinks-main scripts/native.mjs android",
+    "native:apk": "node --preserve-symlinks --preserve-symlinks-main scripts/native.mjs apk",
+    "native:ios": "node --preserve-symlinks --preserve-symlinks-main scripts/native.mjs ios",
+    "test": "node --preserve-symlinks --preserve-symlinks-main --test tests/core.test.mjs tests/app.test.mjs tests/server.test.mjs tests/google.test.mjs tests/backend.test.mjs tests/native.test.mjs",
+    "check": "node --preserve-symlinks --preserve-symlinks-main scripts/check.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/browser": "^7.0.0",
+    "@capacitor/filesystem": "^7.0.0",
+    "@capacitor/share": "^7.0.0"
+  },
+  "devDependencies": { "@capacitor/cli": "^7.0.0", "esbuild": "^0.25.0" }
+}

@@ -26,7 +26,7 @@ test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시�
     await import('../src/app.js');
     for(let i=0;i<20&&!app.innerHTML.includes('오늘도, 단둘이');i++)await new Promise(resolve=>setTimeout(resolve,5));
     assert.match(app.innerHTML,/오늘도, 단둘이/);assert.match(app.innerHTML,/이 기기 체험 모드/);assert.equal(rows.size,7);
-    await click({view:'diary'});assert.match(app.innerHTML,/너의 하루, 나의 마음/);
+    await click({view:'diary'});assert.match(app.innerHTML,/우리의 공동 게시판/);await click({view:'memories'});
     await click({action:'new',kind:'diary'});assert.equal(editor.open,true);assert.match(editor.innerHTML,/두 사람 모두에게 공개/);
     assert.equal(await submit('diary',{text:'<script>내 일기</script>',date:'2026-10-26',mood:'♡'}),'');
     assert.match(app.innerHTML,/&lt;script&gt;내 일기&lt;\/script&gt;/);assert.doesNotMatch(app.innerHTML,/<script>내 일기/);assert.equal(editor.open,false);
@@ -37,6 +37,8 @@ test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시�
     await click({view:'memories'});assert.match(app.innerHTML,/사진 없는 추억/);await click({action:'open-post',id:post.id});assert.match(editor.innerHTML,/둘이 나누는 이야기/);
     const commentError={textContent:''};const commentForm={id:'comment-form',dataset:{post:post.id},elements:{text:{value:'좋아!'}},querySelector:s=>s==='[type="submit"]'?{textContent:'댓글',isConnected:true}:commentError};
     await listeners.get('submit')({target:commentForm,preventDefault(){}});assert.equal(commentError.textContent,'');assert.match(editor.innerHTML,/좋아!/);
+    const comment=[...rows.values()].find(r=>r.kind==='comment'&&r.data.text==='좋아!');editor.scrollTop=125;await click({action:'edit',id:comment.id});
+    assert.equal(await submit('comment',{text:'수정한 댓글',postId:post.id},comment.id),'');assert.equal(editor.open,true);assert.equal(editor.scrollTop,125);assert.match(editor.innerHTML,/수정한 댓글/);assert.match(editor.innerHTML,/사진 없는 추억/);
     await click({action:'close'});
     await click({view:'chat'});const input={value:'새 메시지'};const chatForm={id:'chat-form',elements:{message:input},querySelector:s=>s==='[type="submit"]'?{textContent:'보내기',isConnected:true}:null};
     await listeners.get('submit')({target:chatForm,preventDefault(){}});assert.equal(input.value,'');assert.match(app.innerHTML,/새 메시지/);assert.match(app.innerHTML,/전송됨/);
@@ -85,9 +87,9 @@ test('Drive 사진은 보이는 시점에 불러오고 오류·로그아웃 시 
     await click({action:'open-post',id:row.id});assert.match(editor.innerHTML,/data-drive-file="photo"/);assert.match(editor.innerHTML,/원본 열기/);
     observer.show();await tick();assert.equal(calls,2);assert.equal(detail.img.src,cover.img.src);assert.equal(denied.img.hidden,true);assert.match(denied.status.textContent,/Google을 다시 연결/);
     detail.img.onerror();assert.equal(detail.fallback.hidden,false);assert.equal(detail.img.hidden,true);assert.match(detail.status.textContent,/원본 열기/);
-    images=[];await click({action:'close'});await tick();assert.deepEqual(revoked,['blob:private-photo-1']);
-    const pending=image('photo');images=[pending.img];await click({view:'memories'});observer.show();assert.equal(calls,3);
-    images=[];await click({action:'logout'});assert.equal(pendingSignal.aborted,true);
+    images=[];await click({action:'close'});await tick();assert.deepEqual(revoked,[]);
+    const pending=image('pending');images=[pending.img];await click({view:'memories'});observer.show();assert.equal(calls,3);
+    images=[];await click({action:'logout'});assert.deepEqual(revoked,['blob:private-photo-1']);assert.equal(pendingSignal.aborted,true);
     release(new Blob(['late private photo'],{type:'image/jpeg'}));await tick();assert.equal(created,1);assert.equal(pending.img.src,'');
   }finally{local.list=originalList;google.image=originalImage;URL.createObjectURL=originalCreate;URL.revokeObjectURL=originalRevoke;globalThis.setInterval=originalInterval;if(originalObserver)globalThis.IntersectionObserver=originalObserver;else delete globalThis.IntersectionObserver;}
 });

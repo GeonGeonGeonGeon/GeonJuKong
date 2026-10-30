@@ -7,6 +7,8 @@ import { Share } from '@capacitor/share';
 
 window.GEONJUKONG_NATIVE = {
   active: Capacitor.isNativePlatform(),
+  onBack: handler => Capacitor.getPlatform() === 'android' ? App.addListener('backButton', handler) : undefined,
+  exit: () => App.exitApp(),
   open: url => Browser.open({ url }),
   closeBrowser: () => Browser.close(),
   async saveFile(blob, name) {

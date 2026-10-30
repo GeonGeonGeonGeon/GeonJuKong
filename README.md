@@ -38,7 +38,7 @@ Windows의 제한된 작업 폴더에서도 실행되도록 npm 스크립트에 
 
 Google의 일정 변경은 Google 연결 후 최초 조회, 월 이동, 설정의 ‘지금 동기화’에서 반영합니다. 캘린더 알림은 Google Calendar의 기본 알림 설정을 이용합니다. 앱 자체 일정 예약 푸시는 포함하지 않았습니다.
 
-공유 사진은 Google 연결 후 인증된 Drive API로 원본을 읽어 추억 목록과 게시글 안에 표시합니다. 화면에 가까운 사진부터 불러오며, 공개 링크나 URL에 Google 토큰을 넣지 않습니다. 읽을 권한이 없거나 HEIC 등 브라우저에서 표시하지 못하는 형식은 안내 문구와 ‘원본 열기’를 사용합니다. 공유 파일의 원본 열기와 동영상은 Google Drive 뷰어를 사용합니다. 자동 썸네일·동영상 변환/스트리밍 서버는 포함하지 않았습니다. 사진은 원본을 내려받으므로 파일 크기에 따라 데이터와 메모리를 사용합니다. 체험 모드는 지원되는 사진/영상을 앱 안에서도 미리 볼 수 있습니다.
+공유 사진은 인증된 Drive API로 표시하며, 새로 올리는 지원 이미지에는 최대 640px WebP 미리보기를 별도로 생성합니다. 기존 사진이나 생성에 실패한 사진은 원본을 사용합니다. 화면에 가까운 사진부터 불러오고 같은 실행 중에는 메모리 캐시를 재사용합니다. 설정에서 이번 실행의 이미지 본문 다운로드량과 시간을 확인할 수 있습니다. 공개 링크나 URL에 Google 토큰을 넣지 않습니다. 읽을 권한이 없거나 브라우저에서 표시하지 못하는 형식은 ‘원본 열기’를 사용합니다. 동영상 변환·스트리밍 서버는 포함하지 않았습니다.
 
 ## 실제 두 계정 연결
 
@@ -53,7 +53,9 @@ Google의 일정 변경은 Google 연결 후 최초 조회, 월 이동, 설정�
 5. Authentication → URL Configuration에서 Site URL을 배포 주소로 설정하고 Redirect URLs에 배포 주소와 `http://localhost:4173/`을 등록합니다.
 6. 프로젝트 URL과 공개 anon 키 또는 publishable 키를 `config.js`의 `supabaseUrl`, `supabaseAnonKey`에 입력합니다. `service_role`/secret 키는 사용하면 안 됩니다.
 
-브라우저의 Google OAuth 로그인은 PKCE를 사용합니다. 로그인 세션은 이 기기의 localStorage에 저장하고 만료 전에 갱신합니다. 공용 기기에서는 사용 후 로그아웃하세요. Google API 토큰은 메모리에만 보관하므로 페이지를 새로 열거나 토큰이 만료되면 설정에서 Google을 다시 연결합니다.
+브라우저의 Google OAuth 로그인은 PKCE를 사용합니다. 앱 세션은 이 기기의 localStorage에 저장하고 갱신합니다. 공용 기기에서는 사용 후 로그아웃하세요. Google API 접근 토큰은 메모리에만 보관하며, 아래 서버 설정이 완료되면 암호화한 갱신 토큰을 사용해 재실행 후에도 다시 가져옵니다.
+
+기존 프로젝트에는 `supabase/migrations/20261029_google_credentials.sql`과 `supabase/migrations/20261029_shared_features.sql`을 순서대로 적용합니다. 새 프로젝트에는 `supabase/schema.sql`을 실행한 뒤 `supabase/migrations/20261029_google_credentials.sql`을 적용합니다. `supabase/functions/google-auth`를 Edge Function으로 배포하고 서버 비밀값에 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, 32바이트 무작위 키를 Base64로 인코딩한 `GOOGLE_TOKEN_ENCRYPTION_KEY`, 앱의 정확한 origin을 쉼표로 구분한 `GOOGLE_AUTH_ORIGINS`를 설정하세요. Capacitor 사용 시 해당 앱 origin도 포함합니다. 키와 client secret은 클라이언트 코드나 저장소에 넣지 마세요. 암호화 키를 잃거나 바꾸면 기존 갱신 토큰은 복호화할 수 없어 재인증이 필요합니다.
 
 `members` 테이블은 slot 1·2만 허용하며 클라이언트에서 수정할 수 없습니다. RLS가 두 이메일과 Google 제공자를 확인하고, 글 수정·삭제는 작성자만 허용합니다. Google Calendar 일정은 캘린더의 편집 권한을 가진 두 사람이 모두 편집할 수 있습니다. 이메일을 바꿀 때는 관리자가 SQL Editor에서 명시적으로 수정합니다.
 
@@ -72,7 +74,7 @@ Google의 일정 변경은 Google 연결 후 최초 조회, 월 이동, 설정�
 
 API 연결 권한은 `openid`, `email`, `calendar.events`, `drive.file`입니다. 전체 Drive 열람 권한을 요청하지 않고 Picker에서 선택한 폴더 및 앱이 사용하는 파일에 접근합니다. 실제 API 연결 시에도 앱에 로그인한 것과 같은 Google 이메일인지 확인합니다.
 
-테스트 상태·미검증 개인용 OAuth의 사용자 제한·경고·토큰 제약은 Google 설정에 따라 적용됩니다. 두 명 개인 사용이라고 인증이 영구 유지되는 것은 아닙니다. 현재 구현은 브라우저 토큰 방식이므로 장기 Google refresh token을 서버에 저장하지 않습니다.
+테스트 상태·미검증 개인용 OAuth의 사용자 제한·경고·토큰 제약은 Google 설정에 따라 적용됩니다. 외부 사용자 유형의 Testing 상태에서 기본 프로필 외 권한을 요청하면 Google 갱신 토큰은 7일 후 만료될 수 있습니다. 권한 취소나 만료 시 다시 인증해야 하며, 실제 운영에는 동의 화면과 필요한 검증을 확인하세요. [Google OAuth 문서](https://developers.google.com/identity/protocols/oauth2#expiration)
 
 ### 3. 공유 Google Calendar
 
@@ -98,6 +100,8 @@ API 연결 권한은 `openid`, `email`, `calendar.events`, `drive.file`입니다
 게시글 삭제는 댓글도 삭제하지만 Drive/체험 저장소의 원본은 유지합니다. 원본의 영구 삭제는 Drive에서 별도로 관리하세요. Drive 단일 보관은 독립적인 백업이 아니므로 PC/외장 저장장치에도 주기적으로 복사하는 것을 권합니다.
 
 ### 5. 잠금 화면 채팅 알림 (선택)
+
+앱의 종 알림은 상대방의 게시물, 일기, 댓글·답글과 앱에서 새로 추가한 캘린더 일정을 표시합니다. 기존 프로젝트에는 `supabase/migrations/20261031_activity_notifications.sql`을 추가로 적용해야 합니다. 일정 알림은 Google 일정 저장 후 공유 저장소에 기록하며, 기록에 실패하면 해당 기기에서 연결 복구 후 재시도합니다. Google Calendar에서 앱을 거치지 않고 직접 추가한 일정은 이 알림에 포함되지 않습니다. 이 알림은 아래 잠금 화면 채팅 푸시와 별개입니다.
 
 폴링 채팅만 사용하면 이 단계 없이 사용할 수 있습니다. 앱이 닫힌 상태에서 알림을 받으려면 다음 설정이 필요합니다.
 

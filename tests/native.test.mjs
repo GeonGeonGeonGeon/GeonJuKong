@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import { androidCallbackManifest,iosCallbackPlist } from '../scripts/native-projects.mjs';
 import { isAuthCallback,NATIVE_CALLBACK } from '../src/platform.js';
 import { png } from '../scripts/icons.mjs';
+import { native } from '../src/platform.js';
+
+test('Android back handler and exit delegate only to the installed bridge', async () => {
+  const previous = globalThis.window;
+  let handler, exited = 0;
+  try {
+    globalThis.window = { GEONJUKONG_NATIVE: { active: true, onBack: callback => { handler = callback; }, exit: async () => { exited++; } } };
+    let backs = 0;
+    await native.onBack(() => { backs++; }); handler(); await native.exit();
+    assert.equal(backs, 1); assert.equal(exited, 1);
+    window.GEONJUKONG_NATIVE.active = false;
+    await native.exit(); assert.equal(exited, 1);
+  } finally { globalThis.window = previous; }
+});
 
 test('네이티브 로그인 콜백은 지정한 scheme·host·path만 허용한다',()=>{
   assert.equal(isAuthCallback(`${NATIVE_CALLBACK}?code=test`),true);
@@ -29,8 +43,10 @@ test('네이티브 OAuth는 시스템 브라우저와 PKCE 복귀를 사용하�
   const {auth}=await import('../src/backend.js');const originalFetch=globalThis.fetch;
   try{
     await auth.login();const url=new URL(opened);assert.equal(url.searchParams.get('redirect_to'),NATIVE_CALLBACK);assert.equal(url.searchParams.get('code_challenge_method'),'s256');assert.match(url.searchParams.get('scopes'),/calendar.events/);assert.match(url.searchParams.get('scopes'),/drive.file/);assert.equal(values.get('geonjukong-pkce').length,64);
-    globalThis.fetch=async(_url,options)=>{assert.equal(JSON.parse(options.body).code_verifier,values.get('geonjukong-pkce'));return Response.json({user:{id:'user',email:'person@example.com'},access_token:'app-token',refresh_token:'app-refresh',expires_in:3600,provider_token:'google-access',provider_refresh_token:'google-refresh'});};
-    await auth.callback(`${NATIVE_CALLBACK}?code=authorization-code`);assert.equal(closed,1);assert.equal(values.has('geonjukong-pkce'),false);assert.equal(auth.user.id,'user');
+    let stored=0;
+    globalThis.fetch=async(_url,options)=>{if(String(_url).endsWith('/google-auth')){stored++;assert.equal(options.headers.Authorization,'Bearer app-token');assert.deepEqual(JSON.parse(options.body),{action:'store',refresh_token:'google-refresh'});return Response.json({access_token:'fresh-google',expires_in:3600});}assert.equal(JSON.parse(options.body).code_verifier,values.get('geonjukong-pkce'));return Response.json({user:{id:'user',email:'person@example.com'},access_token:'app-token',refresh_token:'app-refresh',expires_in:3600,provider_token:'google-access',provider_refresh_token:'google-refresh'});};
+    await auth.callback(`${NATIVE_CALLBACK}?code=authorization-code`);assert.equal(closed,1);assert.equal(stored,1);assert.equal(auth.googleWarning,'');assert.equal(values.has('geonjukong-pkce'),false);assert.equal(auth.user.id,'user');
+    assert.equal(new URL(opened).searchParams.get('access_type'),'offline');
     const persisted=JSON.parse(values.get('geonjukong-auth'));assert.equal(persisted.provider_token,undefined);assert.equal(persisted.provider_refresh_token,undefined);assert.equal(auth.takeProviderToken(),'google-access');assert.equal(auth.takeProviderToken(),undefined);
     await assert.rejects(auth.callback('com.geonjukong.couple://other/callback?code=wrong'),/허용되지 않은/);
   }finally{globalThis.fetch=originalFetch;}

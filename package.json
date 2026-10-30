@@ -8,7 +8,7 @@
     "native:android": "node --preserve-symlinks --preserve-symlinks-main scripts/native.mjs android",
     "native:apk": "node --preserve-symlinks --preserve-symlinks-main scripts/native.mjs apk",
     "native:ios": "node --preserve-symlinks --preserve-symlinks-main scripts/native.mjs ios",
-    "test": "node --preserve-symlinks --preserve-symlinks-main --test tests/core.test.mjs tests/app.test.mjs tests/server.test.mjs tests/google.test.mjs tests/backend.test.mjs tests/native.test.mjs",
+    "test": "node --preserve-symlinks --preserve-symlinks-main --test tests/core.test.mjs tests/app.test.mjs tests/server.test.mjs tests/google.test.mjs tests/backend.test.mjs tests/native.test.mjs tests/media.test.mjs tests/navigation.test.mjs tests/calendar-sync.test.mjs tests/reliability.test.mjs tests/polling.test.mjs tests/notifications.test.mjs tests/notifications-demo.test.mjs",
     "check": "node --preserve-symlinks --preserve-symlinks-main scripts/check.mjs"
   },
   "engines": { "node": ">=20" },

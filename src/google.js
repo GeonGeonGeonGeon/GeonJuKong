@@ -2,21 +2,47 @@ import { dateKey, googleEvent, nextDay, safeFileType } from './core.js';
 import { native } from './platform.js';
 const config = window.APP_CONFIG;
 let token = '', expires = 0;
+let tokenProvider, refreshPending;
+let generation = 0;
 const uploads = new Map();
 const scripts = new Map();
 function script(src) {
   if (!scripts.has(src)) scripts.set(src, new Promise((resolve, reject) => { const el = document.createElement('script'); el.src = src; el.onload = resolve; el.onerror = () => { scripts.delete(src); reject(new Error('Google 연결 스크립트를 불러오지 못했습니다.')); }; document.head.append(el); }));
   return scripts.get(src);
 }
-function access() { if (!token || expires < Date.now()) throw new Error('설정에서 Google을 연결해 주세요. 연결이 만료되면 다시 동의해야 합니다.'); return token; }
+async function access(force = false) {
+  if (!force && token && expires > Date.now()) return token;
+  if (!tokenProvider) throw new Error('설정에서 Google을 연결해 주세요.');
+  if (!refreshPending) {
+    const current = generation;
+    refreshPending = Promise.resolve().then(() => tokenProvider(force)).then(result => {
+      if (current !== generation) throw new Error('Google 연결이 종료되었습니다.');
+      if (!result.access_token || !(Number(result.expires_in) > 0)) throw new Error('Google을 다시 연결해 주세요.');
+      token = result.access_token; expires = Date.now() + Math.max(0, Number(result.expires_in) - 30) * 1000;
+      return token;
+    }).finally(() => { refreshPending = undefined; });
+  }
+  return refreshPending;
+}
+async function authorizedFetch(url, options = {}) {
+  let response = await fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${await access()}` } });
+  if (response.status === 401) {
+    token = ''; expires = 0;
+    if (tokenProvider) response = await fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${await access(true)}` } });
+    if (response.status === 401) { token = ''; expires = 0; }
+  }
+  return response;
+}
 async function api(url, options = {}) {
-  const response = await fetch(url, { ...options, headers: { Authorization: `Bearer ${access()}`, ...options.headers } });
+  const response = await authorizedFetch(url, options);
   if (!response.ok) { const data = await response.json().catch(() => ({})); if (response.status === 401) { token = ''; expires = 0; } throw new Error(data.error?.message || `Google 요청 실패 (${response.status})`); }
   return response.status === 204 ? null : response.json();
 }
 const eventPath = () => { if (!config.calendarId) throw new Error('config.js에 공유 캘린더 ID를 입력해 주세요.'); return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(config.calendarId)}/events`; };
 export const google = {
-  get connected() { return Boolean(token && expires > Date.now()); },
+  setTokenProvider(provider) { tokenProvider = provider; },
+  async restore() { await access(); return true; },
+  get connected() { return Boolean(token && (expires > Date.now() || tokenProvider)); },
   async prepare() { if (!native.active && config.googleClientId) await script('https://accounts.google.com/gsi/client'); },
   async acceptNativeToken(value, email) {
     const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {headers:{Authorization:`Bearer ${value}`}});
@@ -42,13 +68,28 @@ export const google = {
       client.requestAccessToken({ prompt: 'select_account' });
     });
   },
-  disconnect() { token = ''; expires = 0; uploads.clear(); },
+  disconnect() { generation++; token = ''; expires = 0; uploads.clear(); },
   async events(year, month) {
     const min = new Date(year, month, -7); const max = new Date(year, month + 1, 14);
     const params = new URLSearchParams({ timeMin: min.toISOString(), timeMax: max.toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
     const all = []; let next;
     do { if (next) params.set('pageToken', next); const result = await api(`${eventPath()}?${params}`); all.push(...(result.items || []).map(googleEvent).filter(Boolean)); next = result.nextPageToken; } while (next);
     return all;
+  },
+  async upcomingEvents(today = dateKey()) {
+    const min = new Date(`${today}T00:00:00`);
+    const params = new URLSearchParams({ timeMin: min.toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
+    const all = []; let next;
+    do {
+      if (next) params.set('pageToken', next);
+      const result = await api(`${eventPath()}?${params}`);
+      all.push(...(result.items || []).map(googleEvent).filter(row => row && row.data.date >= today));
+      next = result.nextPageToken;
+    } while (next && all.length < 3);
+    return all.slice(0, 3);
+  },
+  async event(id) {
+    return googleEvent(await api(`${eventPath()}/${encodeURIComponent(id)}`));
   },
   async saveEvent(data, id) {
     let start, end;
@@ -62,13 +103,13 @@ export const google = {
   },
   async deleteEvent(id) { await api(`${eventPath()}/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
   async pickFolder() {
-    access(); if (!config.googleApiKey || !config.googleProjectNumber) throw new Error('Google Picker용 API 키와 프로젝트 번호를 config.js에 입력해 주세요.');
+    await access(); if (!config.googleApiKey || !config.googleProjectNumber) throw new Error('Google Picker용 API 키와 프로젝트 번호를 config.js에 입력해 주세요.');
     await script('https://apis.google.com/js/api.js');
     await new Promise((resolve, reject) => window.gapi.load('picker', { callback: resolve, onerror: () => reject(new Error('폴더 선택기를 불러오지 못했습니다.')) }));
     return new Promise((resolve, reject) => {
       const pickerApi = window.google.picker;
       const view = new pickerApi.DocsView(pickerApi.ViewId.FOLDERS).setIncludeFolders(true).setSelectFolderEnabled(true);
-      new pickerApi.PickerBuilder().addView(view).setOAuthToken(access()).setDeveloperKey(config.googleApiKey).setAppId(config.googleProjectNumber).setOrigin(location.origin).setCallback(result => {
+      new pickerApi.PickerBuilder().addView(view).setOAuthToken(token).setDeveloperKey(config.googleApiKey).setAppId(config.googleProjectNumber).setOrigin(location.origin).setCallback(result => {
         if (result.action === pickerApi.Action.PICKED) resolve(result.docs[0]);
         if (result.action === pickerApi.Action.CANCEL) reject(new Error('폴더 선택을 취소했습니다.'));
       }).build().setVisible(true);
@@ -81,7 +122,7 @@ export const google = {
     return folder;
   },
   async image(id, signal) {
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`, { headers: { Authorization: `Bearer ${access()}` }, signal });
+    const response = await authorizedFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`, { signal });
     if (!response.ok) {
       if (response.status === 401) { token = ''; expires = 0; }
       throw new Error('Drive 사진을 불러오지 못했어요. Google 연결과 파일 권한을 확인해 주세요.');
@@ -91,24 +132,24 @@ export const google = {
     return blob;
   },
   async upload(file, progress) {
-    safeFileType(file); access();
+    safeFileType(file); await access();
     if (!config.driveFolderId) throw new Error('공유 Drive 폴더를 먼저 설정해 주세요.');
     const key = `${file.name}:${file.size}:${file.lastModified}`;
     let upload = uploads.get(key);
     if (!upload) {
-      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size,webViewLink', { method: 'POST', headers: { Authorization: `Bearer ${access()}`, 'Content-Type': 'application/json', 'X-Upload-Content-Type': file.type, 'X-Upload-Content-Length': String(file.size) }, body: JSON.stringify({ name: file.name, parents: [config.driveFolderId] }) });
+      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size,webViewLink', { method: 'POST', headers: { Authorization: `Bearer ${await access()}`, 'Content-Type': 'application/json', 'X-Upload-Content-Type': file.type, 'X-Upload-Content-Length': String(file.size) }, body: JSON.stringify({ name: file.name, parents: [config.driveFolderId] }) });
       if (!response.ok) { const err = await response.json().catch(() => ({})); throw new Error(err.error?.message || 'Drive 업로드를 시작하지 못했습니다.'); }
       const url = response.headers.get('Location'); if (!url) throw new Error('업로드 세션을 받지 못했습니다.');
       upload = { url, offset: 0 }; uploads.set(key, upload);
     } else {
-      const status = await fetch(upload.url, { method: 'PUT', headers: { Authorization: `Bearer ${access()}`, 'Content-Range': `bytes */${file.size}` } });
+      const status = await fetch(upload.url, { method: 'PUT', headers: { Authorization: `Bearer ${await access()}`, 'Content-Range': `bytes */${file.size}` } });
       if (status.ok) { uploads.delete(key); const result = await status.json(); return { ...result, source: 'drive', type: file.type, size: file.size }; }
       if (status.status !== 308) { uploads.delete(key); throw new Error('업로드 세션이 만료되었습니다. 다시 저장해 주세요.'); }
       upload.offset = Number(status.headers.get('Range')?.split('-')[1] ?? -1) + 1;
     }
     while (upload.offset < file.size) {
       const end = Math.min(upload.offset + 4 * 1024 * 1024, file.size);
-      const response = await fetch(upload.url, { method: 'PUT', headers: { Authorization: `Bearer ${access()}`, 'Content-Type': file.type, 'Content-Range': `bytes ${upload.offset}-${end - 1}/${file.size}` }, body: file.slice(upload.offset, end) });
+      const response = await fetch(upload.url, { method: 'PUT', headers: { Authorization: `Bearer ${await access()}`, 'Content-Type': file.type, 'Content-Range': `bytes ${upload.offset}-${end - 1}/${file.size}` }, body: file.slice(upload.offset, end) });
       if (response.status === 308) { upload.offset = Number(response.headers.get('Range')?.split('-')[1] ?? end - 1) + 1; progress(Math.round(upload.offset / file.size * 100)); continue; }
       if (!response.ok) throw new Error('업로드가 중단되었습니다. 화면을 유지한 채 다시 저장하면 이어서 전송합니다.');
       const result = await response.json(); uploads.delete(key); progress(100); return { ...result, source: 'drive', type: file.type, size: file.size };

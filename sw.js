@@ -1,5 +1,5 @@
-const CACHE = 'geonjukong-shell-v4';
-const SHELL = ['./', './index.html', './styles.css', './config.js', './src/app.js', './src/core.js', './src/storage.js', './src/backend.js', './src/google.js', './src/platform.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png'];
+const CACHE = 'geonjukong-shell-v5';
+const SHELL = ['./', './index.html', './styles.css', './config.js', './src/app.js', './src/core.js', './src/storage.js', './src/backend.js', './src/google.js', './src/platform.js', './src/media.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', event => {

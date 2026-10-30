@@ -89,7 +89,7 @@ Google OAuth 클라이언트의 리디렉션 URI는 기존과 동일한 Supabase
 
 APK 전용으로 설정할 때는 Supabase Authentication → URL Configuration의 Site URL에도 `com.geonjukong.couple://auth/callback`을 입력합니다. Redirect URLs의 이전 `com.danduri.couple://auth/callback`은 새 주소로 교체합니다. Google Auth Platform의 앱 이름과 OAuth 클라이언트 이름, Picker API 키 이름, Supabase 프로젝트 표시 이름은 `GeonJuKong`으로 맞출 수 있습니다. 서비스가 발급한 프로젝트 URL·클라이언트 ID·API 키·프로젝트 번호는 이름을 바꿔 직접 작성하지 말고 발급값을 사용합니다.
 
-설치형 로그인은 앱 내부 WebView에서 Google 로그인 페이지를 열지 않고 Capacitor Browser(시스템 브라우저 화면)를 사용합니다. 캘린더·`drive.file` 동의를 함께 받고 앱 복귀 후 PKCE code를 교환합니다. 토큰의 계정도 확인합니다. Supabase 앱 세션은 유지하지만 Google API 토큰과 Google refresh token은 영구 저장하지 않습니다. 앱을 다시 시작하거나 Google 연결이 만료되면 설정의 ‘Google 연결하기’로 다시 로그인합니다.
+설치형 로그인은 앱 내부 WebView에서 Google 로그인 페이지를 열지 않고 Capacitor Browser(시스템 브라우저 화면)를 사용합니다. 캘린더·`drive.file` 동의를 함께 받고 앱 복귀 후 PKCE code를 교환합니다. 토큰의 계정도 확인합니다. Google API 접근 토큰은 메모리에 보관하고, 서버 설정이 완료되면 암호화한 갱신 토큰으로 재실행 후 연결을 복원합니다. 서버 배포와 앱 origin 설정, 토큰 만료 시 재인증 안내는 [README](README.md)를 참고하세요.
 
 공유 캘린더 ID와 Drive 폴더 ID 및 회원 두 이메일 설정은 `README.md`와 같습니다. Google Picker는 웹 SDK이므로 설치형 WebView의 출처·키 제한과 두 계정의 폴더 권한을 **실제 기기에서 검증해야 합니다.** 폴더 ID 입력만으로 `drive.file` 권한이 생기지 않습니다. 이 설정을 완료하기 전 원본 업로드가 된다고 간주하면 안 됩니다. 전체 Drive 권한으로 임의 확대하지 않았습니다.
 

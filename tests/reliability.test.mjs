@@ -78,5 +78,11 @@ test('저장 후 조회 실패가 댓글 중복을 유발하지 않고 권한과
     await listeners.get('submit')({ target: chatForm, preventDefault() {} });
     assert.equal(savedCount, 2); assert.equal(message.value, ''); assert.equal(notified, 1);
     assert.match(app.innerHTML, /메시지는 전송됐지만/); assert.match(toast.textContent, /메시지는 전송됐어요/);
+    await listeners.get('click')({ target: { closest: () => ({ dataset: { view: 'home' } }) } });
+    const homeHeader = app.innerHTML.match(/<header class="topbar[^>]*>[\s\S]*?<\/header>/)[0];
+    assert.match(homeHeader, /data-action="notice-list"/);
+    assert.doesNotMatch(homeHeader, /OUR LITTLE SPACE|connection|avatar-button/);
+    assert.doesNotMatch(app.innerHTML, /demo-banner/);
+    assert.ok(app.innerHTML.indexOf('anniversary-card') < app.innerHTML.indexOf('page-heading'));
   } finally { globalThis.setInterval = oldInterval; globalThis.FormData = oldFormData; Object.defineProperty(auth, 'googleWarning', warning); }
 });

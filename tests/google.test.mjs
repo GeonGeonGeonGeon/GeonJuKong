@@ -2,6 +2,57 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { seal, unseal, refreshGoogle, verifyGoogle } from '../supabase/functions/google-auth/service.mjs';
 
+test('Google birthday reads the signed-in profile and handles missing or denied data', async () => {
+  const oldWindow = globalThis.window, oldFetch = globalThis.fetch;
+  globalThis.window = { APP_CONFIG: {} };
+  const { google } = await import('../src/google.js?birthday-test');
+  google.setTokenProvider(async () => ({ access_token: 'birthday-token', expires_in: 3600 }));
+  try {
+    globalThis.fetch = async (url, options) => {
+      assert.match(url, /people\/me\?personFields=birthdays/);
+      assert.equal(options.headers.Authorization, 'Bearer birthday-token');
+      return Response.json({ birthdays: [{ date: { year: 2000, month: 2, day: 29 }, metadata: { primary: true } }] });
+    };
+    assert.equal(await google.birthday(), '2000-02-29');
+    globalThis.fetch = async () => Response.json({ birthdays: [{ date: { month: 4, day: 2 } }] });
+    await assert.rejects(google.birthday(), /연도까지/);
+    globalThis.fetch = async () => Response.json({ error: { message: 'insufficient scope' } }, { status: 403 });
+    await assert.rejects(google.birthday(), /다시 연결/);
+  } finally { google.disconnect(); globalThis.window = oldWindow; globalThis.fetch = oldFetch; }
+});
+
+test('Drive photo access selects the requested file and preserves response errors', async () => {
+  const oldWindow = globalThis.window, oldDocument = globalThis.document, oldLocation = globalThis.location, oldFetch = globalThis.fetch;
+  let selected, callback, fileFilter, pickerToken;
+  class DocsView { setFileIds(ids) { fileFilter = ids; return this; } }
+  class PickerBuilder {
+    addView() { return this; } setOAuthToken(value) { pickerToken = value; return this; }
+    setDeveloperKey() { return this; } setAppId() { return this; } setOrigin() { return this; } setTitle() { return this; }
+    setCallback(fn) { callback = fn; return this; }
+    build() { return { setVisible() { queueMicrotask(() => callback(selected)); } }; }
+  }
+  globalThis.window = { APP_CONFIG: { googleApiKey: 'key', googleProjectNumber: '123' }, gapi: { load(_name, options) { options.callback(); } }, google: { picker: { DocsView, PickerBuilder, ViewId: { DOCS: 'docs' }, Action: { PICKED: 'picked', CANCEL: 'cancel' } } } };
+  globalThis.location = { origin: 'https://example.test' };
+  globalThis.document = { createElement() { return {}; }, head: { append(element) { queueMicrotask(() => element.onload()); } } };
+  const { google } = await import('../src/google.js?photo-access-test');
+  google.setTokenProvider(async () => ({ access_token: 'test-token', expires_in: 3600 }));
+  try {
+    selected = { action: 'picked', docs: [{ id: 'other' }] };
+    await assert.rejects(google.pickPhoto('photo-id'), /해당 사진/);
+    assert.equal(fileFilter, 'photo-id'); assert.equal(pickerToken, 'test-token');
+    selected = { action: 'cancel' };
+    await assert.rejects(google.pickPhoto('photo-id'), /취소/);
+    selected = { action: 'picked', docs: [{ id: 'photo-id' }] };
+    await google.pickPhoto('photo-id');
+    globalThis.fetch = async () => new Response(null, { status: 403 });
+    await assert.rejects(google.image('photo-id'), error => error.status === 403);
+    globalThis.fetch = async () => Response.json({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } }, { status: 403 });
+    await assert.rejects(google.image('photo-id'), error => error.code === 'rate_limit');
+    globalThis.fetch = async () => new Response('bad', { headers: { 'Content-Type': 'text/plain' } });
+    await assert.rejects(google.image('photo-id'), error => error.code === 'invalid_image');
+  } finally { google.disconnect(); globalThis.window = oldWindow; globalThis.document = oldDocument; globalThis.location = oldLocation; globalThis.fetch = oldFetch; }
+});
+
 test('Google credentials are encrypted per user and rejected after tampering', async () => {
   const secret = btoa('a'.repeat(32));
   const ciphertext = await seal('private-refresh', secret, 'user-1');

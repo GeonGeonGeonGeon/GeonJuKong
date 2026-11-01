@@ -9,6 +9,17 @@ test('record ordering uses creation instant and stable ID, never edited or diary
   assert.deepEqual(sortRecords(rows, 'oldest').map(r => r.id), ['a', 'b', 'c']);
   assert.equal(rows[0].id, 'a');
 });
+test('date ordering uses the entered date, then creation time and stable ID', () => {
+  const rows = [
+    { id: 'a', created_at: '2026-10-03T00:00:00Z', data: { date: '2026-10-01' } },
+    { id: 'b', created_at: '2026-10-01T00:00:00Z', data: { date: '2026-10-02' } },
+    { id: 'c', created_at: '2026-10-02T00:00:00Z', data: { date: '2026-10-02' } },
+    { id: 'd', created_at: '2026-10-02T00:00:00Z', data: { date: '2026-10-02' } }
+  ];
+  assert.deepEqual(sortRecords(rows, 'date').map(r => r.id), ['d', 'c', 'b', 'a']);
+  assert.deepEqual(sortRecords(rows, 'newest').map(r => r.id), ['a', 'd', 'c', 'b']);
+  assert.equal(rows[0].id, 'a');
+});
 test('anniversaries include the first day and recur without stored duplicates', () => {
   const settings = { startDate: '2024-02-29', birthdays: [{ id: 'one', name: '나', date: '2000-02-29' }, { id: 'two', name: '짝꿍', date: '2001-05-01' }] };
   const first = coupleEvents(2024, settings);

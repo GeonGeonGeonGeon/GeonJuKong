@@ -31,5 +31,10 @@ test('체험 모드에서 상대방 일정과 댓글 알림의 읽음 상태를 
     await click({ action: 'notice-list' }); await click({ action: 'notice-open', id: 'comment' });
     assert.match(editor.innerHTML, /Comment/); assert.equal(JSON.parse(values.get('geonjukong-demo-notification-reads')).length, 2);
     assert.doesNotMatch(app.innerHTML, /notification-dot/);
+    await listeners.get('change')({ target: { id: 'demo-person', value: 'demo-partner' } });
+    await click({ action: 'notice-list' }); assert.match(editor.innerHTML, /모두 읽음/);
+    await click({ action: 'notice-read-all' });
+    assert.doesNotMatch(app.innerHTML, /notification-dot/); assert.doesNotMatch(editor.innerHTML, /모두 읽음/);
+    assert.deepEqual(JSON.parse(values.get('geonjukong-demo-notification-reads')).filter(r => r.user_id === 'demo-partner').map(r => r.record_id).sort(), ['mine', 'post']);
   } finally { globalThis.setInterval = previousInterval; }
 });

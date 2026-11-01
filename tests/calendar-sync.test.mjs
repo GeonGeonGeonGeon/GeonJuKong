@@ -18,7 +18,7 @@ test('캘린더 동기화 실패는 공유 공간을 유지하며 재시도로 �
   globalThis.setInterval = () => 0;
   const { repository } = await import('../src/backend.js');
   const { google } = await import('../src/google.js');
-  Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => [], readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({}) });
+  Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => [], readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01' }) });
   google.prepare = async () => {};
   Object.defineProperty(google, 'connected', { configurable: true, get: () => true });
   let attempts = 0;

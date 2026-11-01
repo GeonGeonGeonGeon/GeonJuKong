@@ -24,6 +24,10 @@ test('공유 저장소: PKCE 교환, 토큰 갱신, 페이지 조회와 비인�
     handler=()=>Response.json({message:'permission denied'},{status:403});await assert.rejects(repository.list(),/permission denied/);
     handler=(url,options)=>{assert.match(url,/records\?on_conflict=id/);assert.match(options.headers.Prefer,/resolution=ignore-duplicates/);assert.deepEqual(JSON.parse(options.body),{id:'notice-uuid',author_id:'user-1',kind:'event_notice',data:{text:'Plan',title:'Plan',date:'2026-12-01',eventId:'google-event'}});return Response.json([]);};
     await repository.saveCalendarNotice('user-1',{id:'notice-uuid',title:'Plan',date:'2026-12-01',eventId:'google-event'});
+    handler=(url,options)=>{assert.match(url,/couple_settings\?on_conflict=id/);assert.equal(options.headers.Prefer,'resolution=ignore-duplicates,return=representation');assert.deepEqual(JSON.parse(options.body),{id:1,data:{startDate:'2020-01-01'}});return Response.json([]);};
+    assert.deepEqual(await repository.createCoupleSettings({startDate:'2020-01-01'}),[]);
+    handler=(url,options)=>{assert.match(url,/notification_reads\?on_conflict=user_id,record_id/);assert.equal(options.headers.Prefer,'resolution=merge-duplicates,return=minimal');const rows=JSON.parse(options.body);assert.deepEqual(rows.map(({user_id,record_id})=>({user_id,record_id})),[{user_id:'user-1',record_id:'one'},{user_id:'user-1',record_id:'two'}]);assert.ok(rows.every(row=>!Number.isNaN(Date.parse(row.read_at))));return new Response(null,{status:204});};
+    await repository.markNotificationsRead('user-1',['one','two']);
   }finally{globalThis.fetch=originalFetch;}
 });
 

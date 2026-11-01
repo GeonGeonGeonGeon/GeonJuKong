@@ -41,6 +41,18 @@ async function api(url, options = {}) {
 const eventPath = () => { if (!config.calendarId) throw new Error('config.js에 공유 캘린더 ID를 입력해 주세요.'); return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(config.calendarId)}/events`; };
 export const google = {
   setTokenProvider(provider) { tokenProvider = provider; },
+  async birthday() {
+    let person;
+    try { person = await api('https://people.googleapis.com/v1/people/me?personFields=birthdays&sources=READ_SOURCE_TYPE_PROFILE'); }
+    catch (error) { throw new Error(`Google 생일을 가져오지 못했어요. 설정에서 Google을 다시 연결하고 생일 권한을 허용해 주세요. (${error.message})`); }
+    const entries = person.birthdays || [];
+    const date = (entries.find(item => item.metadata?.primary && item.date) || entries.find(item => item.date))?.date;
+    if (!date?.year || !date.month || !date.day) throw new Error('Google 계정에서 연도까지 포함된 생일을 찾지 못했어요. Google 계정의 생일을 확인해 주세요.');
+    const value = `${String(date.year).padStart(4, '0')}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
+    const parsed = new Date(`${value}T12:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error('Google 계정의 생일이 올바르지 않아요.');
+    return value;
+  },
   async restore() { await access(); return true; },
   get connected() { return Boolean(token && (expires > Date.now() || tokenProvider)); },
   async prepare() { if (!native.active && config.googleClientId) await script('https://accounts.google.com/gsi/client'); },
@@ -115,6 +127,23 @@ export const google = {
       }).build().setVisible(true);
     });
   },
+  async pickPhoto(id) {
+    await access();
+    if (!config.googleApiKey || !config.googleProjectNumber) throw new Error('사진 선택을 위해 Google Picker API 키와 프로젝트 번호를 설정해 주세요.');
+    await script('https://apis.google.com/js/api.js');
+    await new Promise((resolve, reject) => window.gapi.load('picker', { callback: resolve, onerror: () => reject(new Error('사진 선택기를 불러오지 못했어요.')) }));
+    return new Promise((resolve, reject) => {
+      const pickerApi = window.google.picker;
+      const view = new pickerApi.DocsView(pickerApi.ViewId.DOCS).setFileIds(id);
+      new pickerApi.PickerBuilder().addView(view).setOAuthToken(token).setDeveloperKey(config.googleApiKey).setAppId(config.googleProjectNumber).setOrigin(location.origin).setTitle('미리 볼 사진을 선택해 주세요').setCallback(result => {
+        if (result.action === pickerApi.Action.PICKED) {
+          if (result.docs?.some(file => file.id === id)) resolve();
+          else reject(new Error('해당 사진을 선택해 주세요.'));
+        }
+        if (result.action === pickerApi.Action.CANCEL) reject(new Error('사진 선택을 취소했어요.'));
+      }).build().setVisible(true);
+    });
+  },
   async checkFolder() {
     if (!config.driveFolderId) throw new Error('config.js에 공유 Drive 폴더 ID를 입력해 주세요.');
     const folder = await api(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(config.driveFolderId)}?fields=id,name,mimeType,capabilities(canAddChildren)`);
@@ -125,10 +154,16 @@ export const google = {
     const response = await authorizedFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`, { signal });
     if (!response.ok) {
       if (response.status === 401) { token = ''; expires = 0; }
-      throw new Error('Drive 사진을 불러오지 못했어요. Google 연결과 파일 권한을 확인해 주세요.');
+      const error = new Error('Drive 사진을 불러오지 못했어요. Google 연결과 파일 권한을 확인해 주세요.');
+      error.status = response.status;
+      if (response.status === 403) {
+        const details = await response.json().catch(() => ({}));
+        if (details.error?.errors?.some(item => ['rateLimitExceeded', 'userRateLimitExceeded', 'dailyLimitExceeded'].includes(item.reason))) error.code = 'rate_limit';
+      }
+      throw error;
     }
     const blob = await response.blob();
-    if (!/^image\/(jpeg|png|webp|gif|heic|heif|avif)$/i.test(blob.type) || !blob.size) throw new Error('미리볼 수 있는 사진이 아니에요. 원본 열기를 이용해 주세요.');
+    if (!/^image\/(jpeg|png|webp|gif|heic|heif|avif)$/i.test(blob.type) || !blob.size) { const error = new Error('미리볼 수 있는 사진이 아니에요. 원본 열기를 이용해 주세요.'); error.code = 'invalid_image'; throw error; }
     return blob;
   },
   async upload(file, progress) {

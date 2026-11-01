@@ -22,10 +22,11 @@ test('댓글·답글과 일정 알림을 열고 일정 알림 저장 실패를 �
   const comment = { id: 'comment', kind: 'comment', author_id: 'u2', created_at: '2026-01-02T00:00:00Z', data: { postId: 'post', text: 'comment text' } };
   const reply = { id: 'reply', kind: 'comment', author_id: 'u2', created_at: '2026-01-03T00:00:00Z', data: { postId: 'post', replyTo: 'comment', text: 'reply text' } };
   const eventNotice = { id: 'notice', kind: 'event_notice', author_id: 'u2', created_at: '2026-01-04T00:00:00Z', data: { title: 'Partner event', text: 'Partner event', date: '2027-02-12', eventId: 'event2' } };
-  const rows = [post, comment, reply, eventNotice]; let attempts = 0;
+  const rows = [post, comment, reply, eventNotice]; let attempts = 0, failBulk = true;
   Object.assign(repository, {
     members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => [...rows], readAt: async () => [], notificationReads: async () => reads.map(record_id => ({ record_id })), coupleSettings: async () => ({}),
     markNotificationRead: async (_user, id) => { reads.push(id); },
+    markNotificationsRead: async (_user, ids) => { if (failBulk) throw new Error('읽음 저장 실패'); reads.push(...ids); },
     saveCalendarNotice: async (user, notice) => { attempts++; if (attempts === 1) throw new Error('offline'); rows.push({ id: notice.id, kind: 'event_notice', author_id: user, data: { title: notice.title, date: notice.date, text: notice.title, eventId: notice.eventId }, created_at: new Date().toISOString() }); }
   });
   google.prepare = async () => {}; google.restore = async () => {}; google.events = async () => [];
@@ -57,5 +58,10 @@ test('댓글·답글과 일정 알림을 열고 일정 알림 저장 실패를 �
     await listeners.get('submit')({ target: form, preventDefault() {} });
     assert.equal(attempts, 2);
     assert.equal(values.has('geonjukong-pending-calendar-notices:u1'), false);
+    await click({ action: 'notice-list' }); await click({ action: 'notice-read-all' });
+    assert.match(toast.textContent, /읽음 저장 실패/); assert.match(app.innerHTML, /notification-dot/);
+    failBulk = false; await click({ action: 'notice-read-all' });
+    assert.deepEqual(reads, ['reply', 'notice', 'comment']); assert.doesNotMatch(app.innerHTML, /notification-dot/);
+    assert.doesNotMatch(editor.innerHTML, /모두 읽음/);
   } finally { globalThis.setInterval = oldInterval; globalThis.FormData = oldFormData; }
 });

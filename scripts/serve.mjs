@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { execFile } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,4 +19,12 @@ const server = http.createServer(async (request, response) => {
     response.end(request.method === 'HEAD' ? undefined : data);
   } catch { response.writeHead(404); response.end('Not found'); }
 });
-server.listen(Number(process.env.PORT || 4173), '127.0.0.1', () => console.log(`GeonJuKong: http://localhost:${server.address().port}`));
+server.listen(Number(process.env.PORT || 4173), '127.0.0.1', () => {
+  const url = `http://localhost:${server.address().port}`;
+  console.log(`GeonJuKong: ${url}`);
+  if (process.argv.includes('--open') && process.platform === 'win32') {
+    execFile('rundll32.exe', ['url.dll,FileProtocolHandler', url], error => {
+      if (error) console.error(`Could not open the browser. Open ${url} manually.`);
+    });
+  }
+});

@@ -25,8 +25,12 @@ test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시�
   try{
     await import('../src/app.js');
     for(let i=0;i<20&&!app.innerHTML.includes('오늘도, 단둘이');i++)await new Promise(resolve=>setTimeout(resolve,5));
-    assert.match(app.innerHTML,/오늘도, 단둘이/);assert.match(app.innerHTML,/이 기기 체험 모드/);assert.equal(rows.size,7);
-    await click({view:'diary'});assert.match(app.innerHTML,/우리의 공동 게시판/);await click({view:'memories'});
+    assert.match(app.innerHTML,/오늘도, 단둘이/);assert.match(app.innerHTML,/demo-banner/);assert.equal(rows.size,7);
+    const homeHeader=app.innerHTML.match(/<header class="topbar[^>]*>[\s\S]*?<\/header>/)[0];
+    assert.match(homeHeader,/data-action="notice-list"/);assert.doesNotMatch(homeHeader,/OUR LITTLE SPACE|connection|avatar-button/);
+    assert.ok(app.innerHTML.indexOf('anniversary-card') < app.innerHTML.indexOf('demo-banner'));
+    assert.ok(app.innerHTML.indexOf('anniversary-card') < app.innerHTML.indexOf('page-heading'));
+    assert.doesNotMatch(app.innerHTML,/data-view="diary"/);await click({view:'memories'});
     await click({action:'new',kind:'diary'});assert.equal(editor.open,true);assert.match(editor.innerHTML,/두 사람 모두에게 공개/);
     assert.equal(await submit('diary',{text:'<script>내 일기</script>',date:'2026-10-26',mood:'♡'}),'');
     assert.match(app.innerHTML,/&lt;script&gt;내 일기&lt;\/script&gt;/);assert.doesNotMatch(app.innerHTML,/<script>내 일기/);assert.equal(editor.open,false);
@@ -34,7 +38,15 @@ test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시�
     assert.equal(await submit('diary',{text:'수정한 일기',date:'2026-10-26'},diary.id),'');assert.equal(rows.get(diary.id).data.text,'수정한 일기');
     assert.equal(await submit('post',{title:'사진 없는 추억',date:'2026-10-26',text:'우리의 기록'}),'');
     const post=[...rows.values()].find(r=>r.data.title==='사진 없는 추억');assert.ok(post);
-    await click({view:'memories'});assert.match(app.innerHTML,/사진 없는 추억/);await click({action:'open-post',id:post.id});assert.match(editor.innerHTML,/둘이 나누는 이야기/);
+    rows.set('sort-date',{...post,id:'sort-date',created_at:'2020-01-01T00:00:00Z',data:{...post.data,title:'정렬 날짜 항목',date:'2099-01-01'}});
+    rows.set('sort-upload',{...post,id:'sort-upload',created_at:'2099-01-01T00:00:00Z',data:{...post.data,title:'정렬 업로드 항목',date:'2020-01-01'}});
+    await click({action:'refresh'});
+    assert.doesNotMatch(app.innerHTML,/post-order|sort-control/);
+    assert.ok(app.innerHTML.indexOf('정렬 날짜 항목') < app.innerHTML.indexOf('정렬 업로드 항목'));
+    rows.delete('sort-date');rows.delete('sort-upload');
+    rows.set('legacy-board',{...post,id:'legacy-board',data:{...post.data,title:'Legacy shared post',space:'board'}});
+    await click({action:'refresh'});assert.match(app.innerHTML,/Legacy shared post/);
+    await click({view:'memories'});assert.match(app.innerHTML,/우리의 일기/);assert.doesNotMatch(app.innerHTML,/보관함/);assert.match(app.innerHTML,/사진 없는 추억/);await click({action:'open-post',id:post.id});assert.match(editor.innerHTML,/둘이 나누는 이야기/);
     const commentError={textContent:''};const commentForm={id:'comment-form',dataset:{post:post.id},elements:{text:{value:'좋아!'}},querySelector:s=>s==='[type="submit"]'?{textContent:'댓글',isConnected:true}:commentError};
     await listeners.get('submit')({target:commentForm,preventDefault(){}});assert.equal(commentError.textContent,'');assert.match(editor.innerHTML,/좋아!/);
     const comment=[...rows.values()].find(r=>r.kind==='comment'&&r.data.text==='좋아!');editor.scrollTop=125;await click({action:'edit',id:comment.id});
@@ -49,13 +61,25 @@ test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시�
     await repository.save('demo','demo-me','comment',{text:'삭제 테스트 댓글',postId:ownPost.id});await repository.remove('demo','demo-partner',ownPost);
     assert.equal([...rows.values()].filter(r=>r.kind==='comment'&&r.data.postId===ownPost.id).length,0);
     await click({view:'calendar'});assert.match(app.innerHTML,/함께 채우는 달력/);assert.match(app.innerHTML,/aria-label="다음 달"/);
-    await click({view:'settings'});await click({action:'google-connect'});assert.match(toast.textContent,/체험 모드에서는 외부 데이터를 변경하지/);
+    await click({view:'settings'});
+    assert.match(app.innerHTML,/type="date" name="startDate"/);
+    assert.match(app.innerHTML,/Google 생일은 로그인 후 가져올 수 있어요/);
+    const coupleError={textContent:''},coupleButton={textContent:'저장',isConnected:true};
+    const coupleForm={id:'couple-form',_data:{startDate:'2020-02-29'},querySelector:s=>s==='[type="submit"]'?coupleButton:coupleError};
+    const saveCouple=()=>listeners.get('submit')({target:coupleForm,preventDefault(){}});
+    await saveCouple();assert.equal(coupleError.textContent,'');
+    assert.equal(JSON.parse(values.get('geonjukong-demo-couple')).startDate,'2020-02-29');
+    assert.match(app.innerHTML,/name="startDate" value="2020-02-29"/);
+    coupleForm._data.startDate='2021-02-29';await saveCouple();assert.match(coupleError.textContent,/올바른 날짜/);
+    assert.equal(JSON.parse(values.get('geonjukong-demo-couple')).startDate,'2020-02-29');
+    coupleForm._data.startDate='';await saveCouple();assert.match(coupleError.textContent,/올바른 날짜/);
+    await click({action:'google-connect'});assert.match(toast.textContent,/체험 모드에서는 외부 데이터를 변경하지/);
   }finally{globalThis.FormData=originalFormData;globalThis.setInterval=originalInterval;}
 });
 
 test('Drive 사진은 보이는 시점에 불러오고 오류·로그아웃 시 안전하게 정리한다',async()=>{
   const listeners=new Map(),values=new Map([['geonjukong-seeded','1']]);
-  const row={id:'drive-post',kind:'post',author_id:'demo-me',created_at:'2026-10-26T00:00:00Z',data:{title:'Drive 사진 추억',date:'2026-10-26',files:[{id:'photo',source:'drive',type:'image/jpeg',name:'우리 사진.jpg'},{id:'denied',source:'drive',type:'image/png',name:'다른 사진.png'}]}};
+  const row={id:'drive-post',kind:'post',author_id:'demo-me',created_at:'2026-10-26T00:00:00Z',data:{title:'Drive 사진 추억',date:'2026-10-26',files:[{id:'photo',source:'drive',type:'image/jpeg',name:'우리 사진.jpg'},{id:'denied',source:'drive',type:'image/png',name:'다른 사진.png'},{id:'original',source:'drive',type:'image/jpeg',name:'원본.jpg',thumbnail:{id:'preview',source:'drive',type:'image/webp',name:'미리보기.webp'}}]}};
   const app={innerHTML:''},toast={textContent:'',classList:{add(){},remove(){}}},editor={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){}};
   let images=[],observer;
   function image(id){const fallback={hidden:false},status={textContent:''};const img={dataset:{driveFile:id},isConnected:true,hidden:true,src:''};img.parentElement={querySelector:s=>s==='img'?img:s==='.file-cover'?fallback:status};return{img,fallback,status};}
@@ -72,7 +96,7 @@ test('Drive 사진은 보이는 시점에 불러오고 오류·로그아웃 시 
   const {local}=await import('../src/storage.js');const {google}=await import('../src/google.js');
   const originalList=local.list,originalImage=google.image;local.list=async()=>[row];
   let calls=0,release,pendingSignal;
-  google.image=async(id,signal)=>{calls++;if(id==='denied')throw new Error('Forbidden');pendingSignal=signal;return new Promise(resolve=>{release=resolve;});};
+  google.image=async(id,signal)=>{calls++;if(id==='denied'||id==='preview')throw new Error('Forbidden');if(id==='original')return new Blob(['original'],{type:'image/jpeg'});pendingSignal=signal;return new Promise(resolve=>{release=resolve;});};
   const click=dataset=>listeners.get('click')({target:{closest:()=>({dataset})}});
   const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
   try{
@@ -80,16 +104,27 @@ test('Drive 사진은 보이는 시점에 불러오고 오류·로그아웃 시 
     for(let i=0;i<20&&!app.innerHTML.includes('Drive 사진 추억');i++)await tick();
     assert.match(app.innerHTML,/data-drive-file="photo"/);assert.doesNotMatch(app.innerHTML,/Drive에 보관한 순간/);assert.equal(calls,0);
     observer.show();assert.equal(calls,1);
-    await click({view:'memories'});observer.show();assert.equal(calls,1);
+    await click({view:'memories'});assert.match(app.innerHTML,/class="memory-slides"/);assert.match(app.innerHTML,/data-drive-file="photo"/);assert.match(app.innerHTML,/data-drive-file="denied"/);assert.match(app.innerHTML,/data-drive-file="preview"/);assert.match(app.innerHTML,/class="file-count attachment-position"[^>]*>1 \/ 3/);observer.show();assert.equal(calls,1);
     release(new Blob(['private photo'],{type:'image/jpeg'}));await tick();
     assert.equal(cover.img.src,'blob:private-photo-1');cover.img.onload();assert.equal(cover.img.hidden,false);assert.equal(cover.fallback.hidden,true);
     const detail=image('photo'),denied=image('denied');images=[cover.img,detail.img,denied.img];
-    await click({action:'open-post',id:row.id});assert.match(editor.innerHTML,/data-drive-file="photo"/);assert.match(editor.innerHTML,/원본 열기/);
+    await click({action:'open-post',id:row.id});assert.match(editor.innerHTML,/attachment-position[^>]*>1 \/ 3/);assert.match(editor.innerHTML,/data-action="attachment-prev"[^>]*disabled/);assert.match(editor.innerHTML,/data-drive-file="photo"/);assert.match(editor.innerHTML,/원본 열기/);
+    const position={textContent:''},prev={disabled:true},next={disabled:false};let moved;
+    const gallery={querySelector(selector){return ({'.attachments, .memory-slides':track,'.attachment-position':position,'[data-action=\"attachment-prev\"]':prev,'[data-action=\"attachment-next\"]':next})[selector];}};
+    const track={clientWidth:300,scrollLeft:0,children:[{},{},{}],classList:{contains:name=>name==='attachments'},closest:()=>gallery,scrollTo:options=>{moved=options;}};
+    await listeners.get('click')({target:{closest:()=>({dataset:{action:'attachment-next'},closest:()=>gallery})}});assert.equal(moved.left,300);
+    track.scrollLeft=600;listeners.get('scroll')({target:track});assert.equal(position.textContent,'3 / 3');assert.equal(prev.disabled,false);assert.equal(next.disabled,true);
+    await listeners.get('click')({target:{closest:()=>({dataset:{action:'attachment-prev'},closest:()=>gallery})}});assert.equal(moved.left,300);
+    track.classList.contains=name=>name==='memory-slides';track.scrollLeft=300;listeners.get('scroll')({target:track});assert.equal(position.textContent,'2 / 3');assert.equal(prev.disabled,false);assert.equal(next.disabled,false);
+    await listeners.get('click')({target:{closest:()=>({dataset:{action:'attachment-next'},closest:()=>gallery})}});assert.equal(moved.left,600);
     observer.show();await tick();assert.equal(calls,2);assert.equal(detail.img.src,cover.img.src);assert.equal(denied.img.hidden,true);assert.match(denied.status.textContent,/Google을 다시 연결/);
     detail.img.onerror();assert.equal(detail.fallback.hidden,false);assert.equal(detail.img.hidden,true);assert.match(detail.status.textContent,/원본 열기/);
+    const preview=image('preview');preview.img.dataset.driveOriginal='original';images=[preview.img];
+    await click({action:'open-post',id:row.id});assert.match(editor.innerHTML,/data-drive-file="preview" data-drive-original="original"/);
+    observer.show();await tick();assert.equal(preview.img.dataset.driveFile,'original');assert.equal(preview.img.src,'blob:private-photo-2');preview.img.onload();assert.equal(preview.img.hidden,false);
     images=[];await click({action:'close'});await tick();assert.deepEqual(revoked,[]);
-    const pending=image('pending');images=[pending.img];await click({view:'memories'});observer.show();assert.equal(calls,3);
-    images=[];await click({action:'logout'});assert.deepEqual(revoked,['blob:private-photo-1']);assert.equal(pendingSignal.aborted,true);
-    release(new Blob(['late private photo'],{type:'image/jpeg'}));await tick();assert.equal(created,1);assert.equal(pending.img.src,'');
+    const pending=image('pending');images=[pending.img];await click({view:'memories'});observer.show();assert.equal(calls,5);
+    images=[];await click({action:'logout'});assert.deepEqual(revoked,['blob:private-photo-1','blob:private-photo-2']);assert.equal(pendingSignal.aborted,true);
+    release(new Blob(['late private photo'],{type:'image/jpeg'}));await tick();assert.equal(created,2);assert.equal(pending.img.src,'');
   }finally{local.list=originalList;google.image=originalImage;URL.createObjectURL=originalCreate;URL.revokeObjectURL=originalRevoke;globalThis.setInterval=originalInterval;if(originalObserver)globalThis.IntersectionObserver=originalObserver;else delete globalThis.IntersectionObserver;}
 });

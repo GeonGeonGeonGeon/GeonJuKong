@@ -8,6 +8,8 @@
 
 Node.js 20 이상에서 프로젝트 폴더를 열고 실행합니다. 외부 패키지 설치는 필요하지 않습니다.
 
+Windows에서는 `webServer.bat`을 실행하면 서버가 시작된 뒤 기본 브라우저가 열립니다. 서버를 유지하려면 명령 창을 열어 두고, 종료하려면 Ctrl+C를 누르세요.
+
 ```sh
 npm run dev
 ```
@@ -40,6 +42,8 @@ Google의 일정 변경은 Google 연결 후 최초 조회, 월 이동, 설정�
 
 공유 사진은 인증된 Drive API로 표시하며, 새로 올리는 지원 이미지에는 최대 640px WebP 미리보기를 별도로 생성합니다. 기존 사진이나 생성에 실패한 사진은 원본을 사용합니다. 화면에 가까운 사진부터 불러오고 같은 실행 중에는 메모리 캐시를 재사용합니다. 설정에서 이번 실행의 이미지 본문 다운로드량과 시간을 확인할 수 있습니다. 공개 링크나 URL에 Google 토큰을 넣지 않습니다. 읽을 권한이 없거나 브라우저에서 표시하지 못하는 형식은 ‘원본 열기’를 사용합니다. 동영상 변환·스트리밍 서버는 포함하지 않았습니다.
 
+사진 상세에서 접근할 수 없다고 표시되면 ‘사진 접근 허용’을 눌러 Google Picker에서 해당 원본 사진을 선택합니다. 선택 후에도 불러오지 못하면 Drive에서 로그인 계정의 파일 공유 권한을 확인합니다. Google Picker API 키와 프로젝트 번호가 필요하며, 설치형 앱의 선택기 동작은 실제 기기와 Google 설정에서 확인해야 합니다.
+
 ## 실제 두 계정 연결
 
 외부 계정과 자격 증명은 제공되지 않아 프로젝트 생성·실계정 동기화·외부 배포를 대신 완료하지 않았습니다. 비밀번호·service role 키·Google client secret을 프런트엔드나 대화에 넣지 마세요.
@@ -63,7 +67,7 @@ Google의 일정 변경은 Google 연결 후 최초 조회, 월 이동, 설정�
 
 같은 Google Cloud 프로젝트에서 다음을 준비합니다.
 
-1. **Google Calendar API, Google Drive API, Google Picker API**를 활성화합니다.
+1. **Google Calendar API, Google Drive API, Google Picker API, People API**를 활성화합니다.
 2. Google Auth Platform 동의 화면에 앱 이름·연락처와 테스트 사용자 두 이메일을 등록합니다.
 3. 웹 애플리케이션 OAuth 클라이언트를 만듭니다.
 4. 승인된 JavaScript 원본에 `http://localhost:4173`과 실제 `https://배포호스트`를 추가합니다. 경로 없이 origin을 입력합니다.
@@ -72,7 +76,9 @@ Google의 일정 변경은 Google 연결 후 최초 조회, 월 이동, 설정�
 7. Picker용 공개 API 키를 만들고 HTTP referrer를 로컬/배포 주소로 제한하고 API 제한도 적용합니다. `googleApiKey`에 입력합니다.
 8. 프로젝트의 **숫자 프로젝트 번호**를 `googleProjectNumber`에 입력합니다. 문자열 프로젝트 ID와 다릅니다.
 
-API 연결 권한은 `openid`, `email`, `calendar.events`, `drive.file`입니다. 전체 Drive 열람 권한을 요청하지 않고 Picker에서 선택한 폴더 및 앱이 사용하는 파일에 접근합니다. 실제 API 연결 시에도 앱에 로그인한 것과 같은 Google 이메일인지 확인합니다.
+API 연결 권한은 `openid`, `email`, `profile`, `calendar.events`, `drive.file`, `user.birthday.read`입니다. 전체 Drive 열람 권한을 요청하지 않고 Picker에서 선택한 폴더 및 앱이 사용하는 파일에 접근합니다. 실제 API 연결 시에도 앱에 로그인한 것과 같은 Google 이메일인지 확인합니다.
+
+연애 시작일은 달력에서 선택합니다. 생일은 두 사람이 각자 로그인해 설정의 ‘내 Google 생일 가져오기’를 눌러 공유합니다. 기존 사용자는 Google을 다시 연결해 생일 조회 권한에 동의해야 합니다. Google 계정에 연도까지 포함된 생일이 없으면 계정 설정에서 먼저 입력해야 합니다. Google 생일은 공유 설정에 저장되어 상대방에게도 표시됩니다. 기존 프로젝트와 새 프로젝트 모두 `supabase/migrations/20261031_couple_dates.sql`을 추가로 적용하세요. 기존에 입력한 생일은 그대로 두며, 각자가 가져오면 `members`의 해당 slot 생일이 교체됩니다.
 
 테스트 상태·미검증 개인용 OAuth의 사용자 제한·경고·토큰 제약은 Google 설정에 따라 적용됩니다. 외부 사용자 유형의 Testing 상태에서 기본 프로필 외 권한을 요청하면 Google 갱신 토큰은 7일 후 만료될 수 있습니다. 권한 취소나 만료 시 다시 인증해야 하며, 실제 운영에는 동의 화면과 필요한 검증을 확인하세요. [Google OAuth 문서](https://developers.google.com/identity/protocols/oauth2#expiration)
 

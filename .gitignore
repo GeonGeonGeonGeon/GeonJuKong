@@ -1,6 +1,8 @@
 node_modules/
 .npm-cache/
 android/.gradle/
+android/.gradle-mobile-build/
+android/.android-mobile-build/
 android/local.properties
 android/**/build/
 ios/App/Pods/
@@ -15,3 +17,5 @@ coverage/
 dist/
 release.zip
 *.log
+/.idea/workspace.xml
+/.idea/caches/

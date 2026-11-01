@@ -47,7 +47,7 @@ export function safeFileType(file) {
 
 export function sortRecords(rows, order = 'newest') {
   const direction = order === 'oldest' ? 1 : -1;
-  return [...rows].sort((a, b) => direction * ((Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0) || String(a.id).localeCompare(String(b.id))));
+  return [...rows].sort((a, b) => (order === 'date' ? String(b.data.date).localeCompare(String(a.data.date)) : 0) || direction * ((Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0) || String(a.id).localeCompare(String(b.id))));
 }
 export function daysBetween(from, to) {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);

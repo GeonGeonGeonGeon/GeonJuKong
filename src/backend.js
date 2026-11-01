@@ -63,7 +63,7 @@ export const auth = {
     const url = new URL(`${config.supabaseUrl}/auth/v1/authorize`);
     url.search = new URLSearchParams({ provider: 'google', redirect_to: native.active ? NATIVE_CALLBACK : `${location.origin}${location.pathname}`, code_challenge: challenge, code_challenge_method: 's256' });
     url.searchParams.set('access_type', 'offline');
-    url.searchParams.set('scopes', 'openid email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file');
+    url.searchParams.set('scopes', 'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/user.birthday.read');
     url.searchParams.set('prompt', 'consent');
     if (native.active) {
       await native.open(url.toString());
@@ -95,9 +95,12 @@ async function rest(path, options = {}) {
 }
 export const repository = {
   async coupleSettings() { const rows = await rest('couple_settings?id=eq.1&select=data'); return rows[0]?.data || {}; },
+  async createCoupleSettings(data) { return rest('couple_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify({ id: 1, data }) }); },
+  async updateCoupleDate(field, date) { return rest('rpc/update_couple_date', { method: 'POST', body: JSON.stringify({ field, date_value: date }) }); },
   async saveCoupleSettings(data) { return rest('couple_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ id: 1, data }) }); },
   async notificationReads() { return rest('notification_reads?select=record_id,read_at'); },
   async markNotificationRead(userId, recordId) { return rest('notification_reads?on_conflict=user_id,record_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ user_id: userId, record_id: recordId, read_at: new Date().toISOString() }) }); },
+  async markNotificationsRead(userId, recordIds) { return rest('notification_reads?on_conflict=user_id,record_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(recordIds.map(record_id => ({ user_id: userId, record_id, read_at: new Date().toISOString() }))) }); },
   async saveCalendarNotice(userId, notice) {
     return rest('records?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify({ id: notice.id, author_id: userId, kind: 'event_notice', data: { text: notice.title, title: notice.title, date: notice.date, eventId: notice.eventId } }) });
   },

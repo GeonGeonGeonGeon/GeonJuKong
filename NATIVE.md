@@ -47,7 +47,7 @@ android/app/build/outputs/apk/debug/건주콩.apk
 
 ### Windows에서 Sideloadly용 IPA 만들기
 
-`iosBuild.bat`을 실행하면 GitHub Actions의 macOS 환경에서 현재 소스로 iOS 앱을 새로 빌드하고 `artifacts/ios-build-<실행번호>/GeonJuKong-unsigned.ipa`를 내려받습니다. Git과 GitHub CLI가 없으면 프로젝트의 `.tools/`에 자동으로 내려받으므로 인터넷 연결이 필요합니다. 처음 실행할 때 GitHub 로그인을 완료하세요. 프로젝트 변경 사항을 커밋하고 `origin`에 푸시해야 원격 빌드에 포함됩니다. 새 IPA를 검증한 뒤 배치 파일이 이전 로컬 템플릿과 IPA를 지웁니다. Sideloadly에 새 IPA를 넣어 본인 Apple 계정으로 서명하고 설치하세요. 실제 기기 설치는 별도로 확인해야 합니다.
+`iosBuild.bat`을 실행하면 현재 작업 파일로 임시 빌드 브랜치를 만들어 GitHub Actions의 macOS 환경에서 iOS 앱을 새로 빌드하고 `artifacts/ios-build-<실행번호>/GeonJuKong-unsigned.ipa`를 내려받습니다. 현재 브랜치와 커밋은 바뀌지 않으며, 임시 브랜치는 빌드 후 삭제됩니다. Git과 GitHub CLI가 없으면 프로젝트의 `.tools/`에 자동으로 내려받으므로 인터넷 연결이 필요합니다. 처음 실행할 때 GitHub 로그인을 완료하세요. GitHub 저장소의 기본 브랜치에 `ios-build.yml` workflow가 있어야 합니다. 새 IPA를 검증한 뒤 배치 파일이 이전 로컬 템플릿과 IPA를 지웁니다. Sideloadly에 새 IPA를 넣어 본인 Apple 계정으로 서명하고 설치하세요. 실제 기기 설치는 별도로 확인해야 합니다.
 
 ### Windows에서 클라우드 빌드
 

@@ -92,6 +92,8 @@ try {
     foreach ($item in @('Payload/App.app/App', 'Payload/App.app/Assets.car', 'Payload/App.app/public/src/native-entry.js')) {
         if ($contents -notcontains $item) { throw "The IPA is missing $item." }
     }
+    $latest = Join-Path $project 'artifacts/GeonJuKong-latest.ipa'
+    Copy-Item -LiteralPath $ipa -Destination $latest -Force
     $oldTemplate = Join-Path $project 'artifacts/GeonJuKong-20261101'
     $oldIpa = Join-Path $project 'artifacts/GeonJuKong-sideload.ipa'
     $artifactRoot = (Resolve-Path -LiteralPath (Join-Path $project 'artifacts')).Path
@@ -99,7 +101,7 @@ try {
         Remove-Item -LiteralPath $oldTemplate -Recurse -Force
     }
     if (Test-Path -LiteralPath $oldIpa -PathType Leaf) { Remove-Item -LiteralPath $oldIpa -Force }
-    Write-Host "Fresh Sideloadly IPA: $ipa"
+    Write-Host "Fresh Sideloadly IPA: $latest"
     Write-Host 'Sideloadly will sign the IPA for your iPhone.'
 } catch {
     Write-Host "Error: $_" -ForegroundColor Red

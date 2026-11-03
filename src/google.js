@@ -66,10 +66,10 @@ export const google = {
     if (!config.googleClientId) throw new Error('config.js에 Google OAuth 클라이언트 ID를 입력해 주세요.');
     if (!window.google?.accounts) throw new Error('Google 연결을 준비 중입니다. 잠시 후 다시 눌러 주세요.');
     return new Promise((resolve, reject) => {
-      const client = window.google.accounts.oauth2.initTokenClient({ client_id: config.googleClientId, scope: 'openid email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file', hint: email,
+      const client = window.google.accounts.oauth2.initTokenClient({ client_id: config.googleClientId, scope: 'openid email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly', hint: email,
         callback: async result => {
           if (result.error) return reject(new Error('Google 접근 동의를 완료하지 못했습니다.'));
-          if (!window.google.accounts.oauth2.hasGrantedAllScopes(result, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/drive.file')) return reject(new Error('캘린더와 Drive 접근에 모두 동의해 주세요.'));
+          if (!window.google.accounts.oauth2.hasGrantedAllScopes(result, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly')) return reject(new Error('캘린더와 Drive 접근에 모두 동의해 주세요.'));
           try {
             const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {headers:{Authorization:`Bearer ${result.access_token}`}});
             const identity = await response.json();
@@ -164,6 +164,16 @@ export const google = {
     }
     const blob = await response.blob();
     if (!/^image\/(jpeg|png|webp|gif|heic|heif|avif)$/i.test(blob.type) || !blob.size) { const error = new Error('미리볼 수 있는 사진이 아니에요. 원본 열기를 이용해 주세요.'); error.code = 'invalid_image'; throw error; }
+    return blob;
+  },
+  async video(id, signal) {
+    const response = await authorizedFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`, { signal });
+    if (!response.ok) {
+      const error = new Error('영상을 불러오지 못했어요. Google 연결과 Drive 공유 권한을 확인해 주세요.');
+      error.status = response.status; throw error;
+    }
+    const blob = await response.blob();
+    if (!/^video\/(mp4|quicktime|webm|3gpp|x-m4v)$/i.test(blob.type) || !blob.size) throw new Error('재생할 수 있는 영상이 아니에요. 원본 열기를 이용해 주세요.');
     return blob;
   },
   async upload(file, progress) {

@@ -45,16 +45,21 @@ android/app/build/outputs/apk/debug/건주콩.apk
 
 ## 아이폰 14용 앱
 
+### Windows에서 Sideloadly용 IPA 만들기
+
+`iosBuild.bat`을 실행하면 GitHub Actions의 macOS 환경에서 현재 소스로 iOS 앱을 새로 빌드하고 `artifacts/ios-build-<실행번호>/GeonJuKong-unsigned.ipa`를 내려받습니다. Git과 GitHub CLI가 없으면 프로젝트의 `.tools/`에 자동으로 내려받으므로 인터넷 연결이 필요합니다. 처음 실행할 때 GitHub 로그인을 완료하세요. 프로젝트 변경 사항을 커밋하고 `origin`에 푸시해야 원격 빌드에 포함됩니다. 새 IPA를 검증한 뒤 배치 파일이 이전 로컬 템플릿과 IPA를 지웁니다. Sideloadly에 새 IPA를 넣어 본인 Apple 계정으로 서명하고 설치하세요. 실제 기기 설치는 별도로 확인해야 합니다.
+
 ### Windows에서 클라우드 빌드
 
 Windows 자체에는 Xcode가 없어 iOS 네이티브 컴파일을 할 수 없습니다. 개인 Mac 없이 작업하려면 Windows에서 GitHub Actions의 macOS 빌드를 실행할 수 있습니다. 이 프로젝트의 수동 실행 설정은 [ios-build.yml](.github/workflows/ios-build.yml)입니다.
 
+
 1. 이 프로젝트를 본인 GitHub 저장소의 기본 브랜치에 올립니다. `.github/workflows/ios-build.yml`, `package-lock.json`, 앱 소스가 포함되어야 하며 `node_modules/`, `dist/`, 인증서는 올리지 않습니다.
 2. 저장소의 **Actions → iOS unsigned build → Run workflow**를 선택합니다. 저장소에서 Actions가 활성화되어 있어야 합니다.
 3. macOS에서 의존성 설치, 소스 검사와 테스트, `npm run native:ios`, Xcode의 Release archive를 순서대로 실행합니다.
-4. 성공한 실행의 **Artifacts → GeonJuKong-ios-unsigned**에서 결과를 내려받습니다. 안에 있는 `GeonJuKong-unsigned.xcarchive.zip`은 서명하지 않은 빌드 결과이며 7일간 보관합니다.
+4. 성공한 실행의 **Artifacts → GeonJuKong-ios-unsigned**에서 결과를 내려받습니다. `GeonJuKong-unsigned.ipa`와 `GeonJuKong-unsigned.xcarchive.zip`은 서명하지 않은 빌드 결과이며 7일간 보관합니다. 빌드할 때 `icons/source.png`에서 현재 iOS 앱 아이콘을 생성합니다.
 
-**이 workflow는 컴파일 확인용이며 아이폰에 설치 가능한 `.ipa`를 만들지 않습니다.** 실제 설치에는 Apple 서명과 IPA 내보내기가 추가로 필요합니다. TestFlight 배포에는 Apple Developer Program과 App Store Connect 설정이 필요하고, 등록 기기용 배포에는 해당 아이폰이 포함된 프로비저닝 프로파일이 필요합니다. 서명 인증서·개인 키·비밀번호는 저장소에 넣지 말고 빌드 서비스의 비밀 설정으로 관리합니다.
+**IPA는 서명되지 않았으므로 아이폰에 설치하려면 별도로 서명해야 합니다.** TestFlight 배포에는 Apple Developer Program과 App Store Connect 설정이 필요하고, 등록 기기용 배포에는 해당 아이폰이 포함된 프로비저닝 프로파일이 필요합니다. 서명 인증서·개인 키·비밀번호는 저장소에 넣지 말고 빌드 서비스의 비밀 설정으로 관리합니다.
 
 GitHub 저장소 연결 정보가 없는 현재 로컬 환경에서는 이 workflow를 실행하지 않았습니다. 실제 Xcode 컴파일 성공 여부는 Actions 실행으로 확인해야 합니다. macOS 실행 비용은 계정의 Actions 사용량과 요금에 따릅니다.
 

@@ -1,7 +1,13 @@
 name: iOS unsigned build
+run-name: iOS unsigned build ${{ inputs.build_id }}
 
 on:
   workflow_dispatch:
+    inputs:
+      build_id:
+        description: Optional identifier for locating a build
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -52,11 +58,20 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent \
             "$RUNNER_TEMP/GeonJuKong.xcarchive" \
             "$RUNNER_TEMP/GeonJuKong-unsigned.xcarchive.zip"
-          echo 'Unsigned archive only. Apple signing and IPA export are required for iPhone installation.' >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$RUNNER_TEMP/GeonJuKong.xcarchive/Products/Applications/App.app" \
+            "$RUNNER_TEMP/ipa/Payload/App.app"
+          test -x "$RUNNER_TEMP/ipa/Payload/App.app/App"
+          test -f "$RUNNER_TEMP/ipa/Payload/App.app/Assets.car"
+          (cd "$RUNNER_TEMP/ipa" && ditto -c -k --keepParent Payload "$RUNNER_TEMP/GeonJuKong-unsigned.ipa")
+          unzip -t "$RUNNER_TEMP/GeonJuKong-unsigned.ipa"
+          echo 'Unsigned IPA and archive. Apple signing is required for iPhone installation.' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
         with:
           name: GeonJuKong-ios-unsigned
-          path: ${{ runner.temp }}/GeonJuKong-unsigned.xcarchive.zip
+          path: |
+            ${{ runner.temp }}/GeonJuKong-unsigned.xcarchive.zip
+            ${{ runner.temp }}/GeonJuKong-unsigned.ipa
           if-no-files-found: error
           retention-days: 7

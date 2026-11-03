@@ -26,7 +26,8 @@ test('PWA back closes a dialog before navigating and day counters refresh after 
     await import('../src/app.js?navigation-test');
     for (let i=0;i<20 && !app.innerHTML.includes('D+363');i++) await flush();
     assert.match(app.innerHTML, /D\+363/);
-    assert.match(app.innerHTML, /짝꿍 생일/);
+    assert.match(app.innerHTML, /1주년/);
+    assert.doesNotMatch(app.innerHTML, /짝꿍 생일/);
     assert.equal(pushes, 1);
     await click({view:'calendar'});
     await click({action:'new',kind:'event'});
@@ -36,14 +37,14 @@ test('PWA back closes a dialog before navigating and day counters refresh after 
     assert.match(app.innerHTML, /함께 채우는 달력/);
     assert.equal(confirmations, 0);
     events.get('popstate')(); await flush();
-    assert.match(app.innerHTML, /오늘도, 단둘이/);
+    assert.match(app.innerHTML, /museum-masthead/);
     events.get('popstate')(); await flush();
     assert.equal(confirmations, 1);
     assert.equal(pushes, 4);
     current = new realDate(2026, 11, 31, 0, 1).getTime();
     await tick();
     assert.match(app.innerHTML, /D\+364/);
-    assert.match(app.innerHTML, /짝꿍 생일/);
+    assert.match(app.innerHTML, /1주년/);
   } finally {
     local.list = originalList; globalThis.Date = realDate; globalThis.setInterval = realInterval;
   }
@@ -69,11 +70,11 @@ test('Android back closes a dialog, returns to home, and confirms before exit', 
   const click = dataset => documentEvents.get('click')({target:{closest:()=>({dataset})}});
   try {
     await import('../src/app.js?android-navigation-test');
-    for (let i=0;i<20 && !app.innerHTML.includes('오늘도, 단둘이');i++) await new Promise(resolve=>setTimeout(resolve,0));
+    for (let i=0;i<20 && !app.innerHTML.includes('museum-masthead');i++) await new Promise(resolve=>setTimeout(resolve,0));
     await click({view:'calendar'});
     await click({action:'new',kind:'event'});
     await back(); assert.equal(editor.open,false); assert.match(app.innerHTML,/함께 채우는 달력/);
-    await back(); assert.match(app.innerHTML,/오늘도, 단둘이/);
+    await back(); assert.match(app.innerHTML,/museum-masthead/);
     await back(); assert.equal(exits,0);
     accepted=true; await back(); assert.equal(exits,1);
   } finally { local.list=originalList; globalThis.setInterval=realInterval; }

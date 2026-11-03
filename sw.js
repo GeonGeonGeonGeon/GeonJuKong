@@ -1,5 +1,5 @@
-const CACHE = 'geonjukong-shell-v8';
-const SHELL = ['./', './index.html', './styles.css', './config.js', './src/app.js', './src/core.js', './src/storage.js', './src/backend.js', './src/google.js', './src/platform.js', './src/media.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png'];
+const CACHE = 'geonjukong-shell-v10';
+const SHELL = ['./', './index.html', './styles.css', './config.js', './src/app.js', './src/core.js', './src/storage.js', './src/backend.js', './src/google.js', './src/platform.js', './src/media.js', './src/bucket-list.js', './src/profiles.js', './src/editor-media.js', './src/dialog-behavior.js', './src/gallery.js', './src/drive-video.js', './src/bucket-list.css', './src/profiles.css', './src/editor-media.css', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', event => {
@@ -14,7 +14,7 @@ self.addEventListener('push', event => {
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const target = new URL('./#chat', self.registration.scope).href;
+  const target = new URL('./#home', self.registration.scope).href;
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async clients => {
     const client = clients.find(item => item.url.startsWith(self.registration.scope));
     if (client) { await client.navigate(target); await client.focus(); } else await self.clients.openWindow(target);

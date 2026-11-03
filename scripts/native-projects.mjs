@@ -25,15 +25,17 @@ export async function configureNativeProject(root, platform) {
       for(const name of ['ic_launcher.png','ic_launcher_round.png'])await writeFile(new URL(name,dir),png(size));
     }
     await mkdir(new URL('drawable/',res),{recursive:true});await mkdir(new URL('values/',res),{recursive:true});await mkdir(new URL('mipmap-anydpi-v26/',res),{recursive:true});
-    await writeFile(new URL('drawable/geonjukong_foreground.xml',res),'<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#f6d9bd" android:pathData="M54,75 C47,69 28,56 28,43 C28,27 47,24 54,38 C61,24 80,27 80,43 C80,56 61,69 54,75 Z" /></vector>');
-    await writeFile(new URL('values/geonjukong_colors.xml',res),'<resources><color name="geonjukong_background">#365749</color></resources>');
+    await mkdir(new URL('drawable-nodpi/',res),{recursive:true});
+    await writeFile(new URL('drawable-nodpi/geonjukong_icon_art.png',res),png(432,true));
+    await writeFile(new URL('drawable/geonjukong_foreground.xml',res),'<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/geonjukong_icon_art" android:gravity="fill" />');
+    await writeFile(new URL('values/geonjukong_colors.xml',res),'<resources><color name="geonjukong_background">#f4eddb</color></resources>');
     for(const name of ['ic_launcher.xml','ic_launcher_round.xml'])await writeFile(new URL(`mipmap-anydpi-v26/${name}`,res),'<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/geonjukong_background"/><foreground android:drawable="@drawable/geonjukong_foreground"/></adaptive-icon>');
   }else{
     const plist=new URL('ios/App/App/Info.plist',root);await writeFile(plist,iosCallbackPlist(await readFile(plist,'utf8')));
     const privacy=new URL('ios/App/PrivacyInfo.xcprivacy',root);
     try { await access(privacy); } catch { await writeFile(privacy,'<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>NSPrivacyAccessedAPITypes</key><array><dict><key>NSPrivacyAccessedAPIType</key><string>NSPrivacyAccessedAPICategoryFileTimestamp</string><key>NSPrivacyAccessedAPITypeReasons</key><array><string>C617.1</string></array></dict></array></dict></plist>'); }
     const dir=new URL('ios/App/App/Assets.xcassets/AppIcon.appiconset/',root);await access(dir);
-    await writeFile(new URL('AppIcon-512@2x.png',dir),png(1024,true));
+    await writeFile(new URL('AppIcon-512@2x.png',dir),png(1024));
     await writeFile(new URL('Contents.json',dir),JSON.stringify({images:[{filename:'AppIcon-512@2x.png',idiom:'universal',platform:'ios',size:'1024x1024'}],info:{author:'xcode',version:1}},null,2));
   }
 }

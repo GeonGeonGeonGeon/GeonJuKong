@@ -1,5 +1,7 @@
 import { local } from './storage.js';
 import { validateRecord } from './core.js';
+import { validateBucketItem } from './bucket-list.js';
+import { validateProfile } from './profiles.js';
 import { native, isAuthCallback, NATIVE_CALLBACK } from './platform.js';
 const config = window.APP_CONFIG;
 const SESSION_KEY = 'geonjukong-auth';
@@ -63,7 +65,7 @@ export const auth = {
     const url = new URL(`${config.supabaseUrl}/auth/v1/authorize`);
     url.search = new URLSearchParams({ provider: 'google', redirect_to: native.active ? NATIVE_CALLBACK : `${location.origin}${location.pathname}`, code_challenge: challenge, code_challenge_method: 's256' });
     url.searchParams.set('access_type', 'offline');
-    url.searchParams.set('scopes', 'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/user.birthday.read');
+    url.searchParams.set('scopes', 'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/user.birthday.read');
     url.searchParams.set('prompt', 'consent');
     if (native.active) {
       await native.open(url.toString());
@@ -94,6 +96,26 @@ async function rest(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 export const repository = {
+  async bucketItems() { return rest('bucket_items?select=*&order=created_at.asc,id.asc'); },
+  async saveBucketItem(userId, data, id, expectedVersion) {
+    data = validateBucketItem(data);
+    const filter = id ? `bucket_items?id=eq.${encodeURIComponent(id)}${expectedVersion ? `&updated_at=eq.${encodeURIComponent(expectedVersion)}` : ''}` : 'bucket_items';
+    const rows = await rest(filter, { method: id ? 'PATCH' : 'POST', body: JSON.stringify(id ? data : { ...data, author_id: userId }) });
+    if (!rows?.length) throw new Error('목표가 변경되었거나 삭제되었어요. 목록을 새로고침하고 다시 시도해 주세요.');
+    return rows[0];
+  },
+  async removeBucketItem(id, expectedVersion) {
+    const rows = await rest(`bucket_items?id=eq.${encodeURIComponent(id)}${expectedVersion ? `&updated_at=eq.${encodeURIComponent(expectedVersion)}` : ''}`, { method: 'DELETE' });
+    if (!rows?.length) throw new Error('목표가 변경되었거나 삭제되었어요. 목록을 새로고침하고 다시 시도해 주세요.');
+  },
+  async profiles() { return rest('member_profiles?select=user_id,email,data,updated_at'); },
+  async saveProfile(userId, data) {
+    data = validateProfile(data);
+    const rows = await rest('member_profiles?on_conflict=user_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ user_id: userId, data }) });
+    if (!rows?.length) throw new Error('프로필을 저장하지 못했어요. 다시 시도해 주세요.');
+    return rows[0];
+  },
+  async updateHomePhoto(selection) { return rest('rpc/update_home_photo', { method: 'POST', body: JSON.stringify({ selection }) }); },
   async coupleSettings() { const rows = await rest('couple_settings?id=eq.1&select=data'); return rows[0]?.data || {}; },
   async createCoupleSettings(data) { return rest('couple_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify({ id: 1, data }) }); },
   async updateCoupleDate(field, date) { return rest('rpc/update_couple_date', { method: 'POST', body: JSON.stringify({ field, date_value: date }) }); },

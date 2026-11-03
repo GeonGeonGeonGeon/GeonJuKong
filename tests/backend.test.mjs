@@ -1,6 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+test('bucket and profile REST writes validate input, protect versions and return persisted rows', async () => {
+  const values = new Map([['geonjukong-auth', JSON.stringify({ user: { id: 'member' }, access_token: 'session', expires_at: Date.now() + 3600000 })]]);
+  globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://features.test', supabaseAnonKey: 'public' } };
+  globalThis.localStorage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  const previousFetch = globalThis.fetch;
+  const { repository } = await import('../src/backend.js?feature-rest-tests');
+  let request, response = [{ id: 'goal', title: 'A goal' }];
+  globalThis.fetch = async (url, options) => { request = { url: new URL(url), options, body: options.body && JSON.parse(options.body) }; return Response.json(response); };
+  try {
+    await repository.saveBucketItem('member', { title: ' A goal ', notes: '', completed_on: null });
+    assert.equal(request.options.method, 'POST'); assert.equal(request.body.author_id, 'member'); assert.equal(request.body.title, 'A goal');
+    assert.equal(request.options.headers.Authorization, 'Bearer session');
+    await repository.saveBucketItem('member', { title: 'A goal', completed_on: '2026-11-03' }, 'goal', '2026-11-03T10:00:00Z');
+    assert.equal(request.options.method, 'PATCH'); assert.equal(request.url.searchParams.get('id'), 'eq.goal');
+    assert.equal(request.url.searchParams.get('updated_at'), 'eq.2026-11-03T10:00:00Z'); assert.equal(request.body.author_id, undefined);
+    response = [];
+    await assert.rejects(repository.saveBucketItem('member', { title: 'A goal' }, 'goal', 'stale'), /변경되었거나 삭제/);
+    await assert.rejects(repository.removeBucketItem('goal', 'stale'), /변경되었거나 삭제/);
+    assert.equal(request.options.method, 'DELETE'); assert.equal(request.url.searchParams.get('updated_at'), 'eq.stale');
+    await assert.rejects(repository.saveBucketItem('member', { title: 'A goal', completed_on: '2026-02-30' }), /올바른 달성/);
+    response = [{ user_id: 'member', data: { status: 'hello', bio: '', photo: '' } }];
+    const saved = await repository.saveProfile('member', { status: ' hello ' });
+    assert.equal(saved.user_id, 'member'); assert.equal(request.url.pathname, '/rest/v1/member_profiles');
+    assert.match(request.options.headers.Prefer, /resolution=merge-duplicates/);
+    assert.deepEqual(request.body, { user_id: 'member', data: { name: '', status: 'hello', bio: '', photo: '' } });
+    await assert.rejects(repository.saveProfile('member', { photo: 'https://invalid.test/image.svg' }), /프로필 사진/);
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 test('공유 저장소: PKCE 교환, 토큰 갱신, 페이지 조회와 비인가 수정 실패',async()=>{
   const storage=new Map([['geonjukong-pkce','test-verifier']]);
   globalThis.window={APP_CONFIG:{supabaseUrl:'https://test.supabase.co',supabaseAnonKey:'test-public-key'}};

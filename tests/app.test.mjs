@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시지와 작성자 권한',async()=>{
+test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·버킷리스트와 작성자 권한',async()=>{
   const rows=new Map(),files=new Map(),values=new Map(),listeners=new Map();
   const app={innerHTML:''},toast={textContent:'',classList:{add(){},remove(){}}},editor={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){}};
   globalThis.window={APP_CONFIG:{},addEventListener(){},scrollTo(){}};
@@ -24,12 +24,14 @@ test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시�
   }
   try{
     await import('../src/app.js');
-    for(let i=0;i<20&&!app.innerHTML.includes('오늘도, 단둘이');i++)await new Promise(resolve=>setTimeout(resolve,5));
-    assert.match(app.innerHTML,/오늘도, 단둘이/);assert.match(app.innerHTML,/demo-banner/);assert.equal(rows.size,7);
+    for(let i=0;i<20&&!app.innerHTML.includes('museum-masthead');i++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.match(app.innerHTML,/museum-masthead/);assert.match(app.innerHTML,/demo-banner/);assert.equal(rows.size,6);
     const homeHeader=app.innerHTML.match(/<header class="topbar[^>]*>[\s\S]*?<\/header>/)[0];
     assert.match(homeHeader,/data-action="notice-list"/);assert.doesNotMatch(homeHeader,/OUR LITTLE SPACE|connection|avatar-button/);
-    assert.ok(app.innerHTML.indexOf('anniversary-card') < app.innerHTML.indexOf('demo-banner'));
-    assert.ok(app.innerHTML.indexOf('anniversary-card') < app.innerHTML.indexOf('page-heading'));
+    assert.ok(app.innerHTML.indexOf('museum-masthead') < app.innerHTML.indexOf('museum-photo'));
+    assert.ok(app.innerHTML.indexOf('museum-photo') < app.innerHTML.indexOf('schedule-card'));
+    assert.ok(app.innerHTML.indexOf('schedule-card') < app.innerHTML.indexOf('home-diary'));
+    assert.ok((app.innerHTML.match(/class="home-event"/g) || []).length <= 1);
     assert.doesNotMatch(app.innerHTML,/data-view="diary"/);await click({view:'memories'});
     await click({action:'new',kind:'diary'});assert.equal(editor.open,true);assert.match(editor.innerHTML,/두 사람 모두에게 공개/);
     assert.equal(await submit('diary',{text:'<script>내 일기</script>',date:'2026-10-26',mood:'♡'}),'');
@@ -52,8 +54,9 @@ test('앱 체험 흐름: 초기 데이터, 글·댓글·일기·일정·메시�
     const comment=[...rows.values()].find(r=>r.kind==='comment'&&r.data.text==='좋아!');editor.scrollTop=125;await click({action:'edit',id:comment.id});
     assert.equal(await submit('comment',{text:'수정한 댓글',postId:post.id},comment.id),'');assert.equal(editor.open,true);assert.equal(editor.scrollTop,125);assert.match(editor.innerHTML,/수정한 댓글/);assert.match(editor.innerHTML,/사진 없는 추억/);
     await click({action:'close'});
-    await click({view:'chat'});const input={value:'새 메시지'};const chatForm={id:'chat-form',elements:{message:input},querySelector:s=>s==='[type="submit"]'?{textContent:'보내기',isConnected:true}:null};
-    await listeners.get('submit')({target:chatForm,preventDefault(){}});assert.equal(input.value,'');assert.match(app.innerHTML,/새 메시지/);assert.match(app.innerHTML,/전송됨/);
+    assert.doesNotMatch(app.innerHTML,/data-view="chat"/);
+    await click({view:'bucket'});assert.match(app.innerHTML,/OUR BUCKET LIST/);
+    assert.match(app.innerHTML,/data-action="bucket-new"/);
     await listeners.get('change')({target:{id:'demo-person',value:'demo-partner'}});
     assert.match(await submit('diary',{text:'몰래 수정',date:'2026-10-26'},diary.id),/작성자만/);assert.equal(rows.get(diary.id).data.text,'수정한 일기');
     const {repository}=await import('../src/backend.js');await assert.rejects(repository.remove('demo','demo-partner',diary),/작성자만/);

@@ -1,0 +1,23 @@
+{
+	"appId": "com.geonjukong.couple",
+	"appName": "건주콩",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https",
+		"iosScheme": "capacitor"
+	},
+	"android": {
+		"allowMixedContent": false,
+		"backgroundColor": "#faf8f2"
+	},
+	"ios": {
+		"backgroundColor": "#faf8f2",
+		"contentInset": "automatic"
+	},
+	"packageClassList": [
+		"AppPlugin",
+		"CAPBrowserPlugin",
+		"FilesystemPlugin",
+		"SharePlugin"
+	]
+}

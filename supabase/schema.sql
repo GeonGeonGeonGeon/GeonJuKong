@@ -169,3 +169,83 @@ create policy "Pair manages settings" on public.couple_settings for all to authe
 revoke all on public.couple_settings from anon, authenticated;
 grant select, insert, update on public.couple_settings to authenticated;
 commit;
+
+begin;
+
+create table if not exists public.bucket_items (
+  id uuid primary key default gen_random_uuid(),
+  author_id uuid not null references auth.users(id),
+  title text not null check (length(trim(title)) between 1 and 120),
+  notes text not null default '' check (length(notes) <= 2000),
+  completed_on date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create or replace function public.check_bucket_item_update() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if new.id <> old.id or new.author_id <> old.author_id or new.created_at <> old.created_at then
+    raise exception 'Bucket item identity cannot be changed';
+  end if;
+  new.updated_at = now();
+  return new;
+end;
+$$;
+revoke all on function public.check_bucket_item_update() from public;
+drop trigger if exists validate_bucket_item on public.bucket_items;
+create trigger validate_bucket_item before update on public.bucket_items
+  for each row execute function public.check_bucket_item_update();
+
+alter table public.bucket_items enable row level security;
+drop policy if exists "Pair reads bucket list" on public.bucket_items;
+create policy "Pair reads bucket list" on public.bucket_items for select to authenticated using (public.is_member());
+drop policy if exists "Members add bucket goals" on public.bucket_items;
+create policy "Members add bucket goals" on public.bucket_items for insert to authenticated with check (public.is_member() and author_id = auth.uid());
+drop policy if exists "Pair updates bucket goals" on public.bucket_items;
+create policy "Pair updates bucket goals" on public.bucket_items for update to authenticated using (public.is_member()) with check (public.is_member());
+drop policy if exists "Pair deletes bucket goals" on public.bucket_items;
+create policy "Pair deletes bucket goals" on public.bucket_items for delete to authenticated using (public.is_member());
+revoke all on public.bucket_items from anon, authenticated;
+grant select, insert, update, delete on public.bucket_items to authenticated;
+
+commit;
+
+begin;
+create table if not exists public.member_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  email text not null,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now(),
+  check (jsonb_typeof(data) = 'object' and octet_length(data::text) <= 200000),
+  check (not (data ? 'bio') or (jsonb_typeof(data->'bio') = 'string' and length(data->>'bio') <= 1000)),
+  check (not (data ? 'status') or (jsonb_typeof(data->'status') = 'string' and length(data->>'status') <= 100)),
+  check (not (data ? 'photo') or (jsonb_typeof(data->'photo') = 'string' and length(data->>'photo') <= 180000 and (data->>'photo' = '' or data->>'photo' ~ '^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$')))
+);
+
+create or replace function public.check_member_profile() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if TG_OP = 'UPDATE' and new.user_id <> old.user_id then
+    raise exception 'Profile owner cannot be changed';
+  end if;
+  new.email = lower(auth.jwt()->>'email');
+  new.updated_at = now();
+  return new;
+end;
+$$;
+drop trigger if exists validate_member_profile on public.member_profiles;
+create trigger validate_member_profile before insert or update on public.member_profiles
+  for each row execute function public.check_member_profile();
+
+alter table public.member_profiles enable row level security;
+drop policy if exists "Pair reads profiles" on public.member_profiles;
+create policy "Pair reads profiles" on public.member_profiles for select to authenticated
+  using (public.is_member() and exists (select 1 from public.members where members.email = member_profiles.email));
+drop policy if exists "Own profile insert" on public.member_profiles;
+create policy "Own profile insert" on public.member_profiles for insert to authenticated with check (public.is_member() and user_id = auth.uid());
+drop policy if exists "Own profile update" on public.member_profiles;
+create policy "Own profile update" on public.member_profiles for update to authenticated using (public.is_member() and user_id = auth.uid()) with check (public.is_member() and user_id = auth.uid());
+revoke all on public.member_profiles from anon, authenticated;
+grant select, insert, update on public.member_profiles to authenticated;
+commit;

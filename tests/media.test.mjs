@@ -32,3 +32,29 @@ test('preview counters distinguish downloaded bytes and cache hits', () => {
   assert.equal(after.cacheHits - before.cacheHits, 1);
   assert.equal(after.milliseconds - before.milliseconds, 50);
 });
+
+test('video previews capture a bounded frame without changing the original and release the decoder URL', async () => {
+  const oldDocument = globalThis.document, oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL;
+  let canvas, decoder, released = 0, disposed = 0;
+  URL.createObjectURL = () => 'blob:video-preview';
+  URL.revokeObjectURL = url => { assert.equal(url, 'blob:video-preview'); released++; };
+  globalThis.document = { createElement(tag) {
+    if (tag === 'video') {
+      decoder = { duration: 12, videoWidth: 1920, videoHeight: 1080, load() { disposed++; }, removeAttribute() {}, set src(value) { assert.equal(value, 'blob:video-preview'); queueMicrotask(() => this.onloadeddata()); }, set currentTime(value) { assert.equal(value, 0.1); queueMicrotask(() => this.onseeked()); } };
+      return decoder;
+    }
+    canvas = { getContext: () => ({ drawImage(source) { assert.equal(source, decoder); } }), toBlob: callback => callback(new Blob(['frame'], { type: 'image/webp' })) };
+    return canvas;
+  } };
+  try {
+    const original = new File(['x'.repeat(1000)], 'clip.mov', { type: 'video/quicktime' });
+    const result = await createThumbnail(original);
+    assert.equal(result.type, 'image/webp'); assert.equal(result.name, 'clip.preview.webp');
+    assert.equal(canvas.width, 640); assert.equal(canvas.height, 360);
+    assert.equal(original.size, 1000); assert.equal(released, 1); assert.equal(disposed, 1);
+    assert.equal(decoder.onloadeddata, null);
+    globalThis.document.createElement = () => ({ load() {}, removeAttribute() {}, set src(value) { queueMicrotask(() => this.onerror()); } });
+    assert.equal(await createThumbnail(original), null);
+    assert.equal(released, 2);
+  } finally { globalThis.document = oldDocument; URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke; }
+});

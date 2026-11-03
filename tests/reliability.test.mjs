@@ -23,7 +23,7 @@ test('저장 후 조회 실패가 댓글 중복을 유발하지 않고 권한과
   Object.assign(repository, {
     members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }],
     list: async () => { if (failList) { failList = false; throw new Error('network'); } return [post, ...comments]; },
-    readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({}),
+    profiles: async () => [], bucketItems: async () => [], readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({}),
     save: async (_mode, _user, kind, data) => { const row = { id: `c${comments.length}`, kind, author_id: 'u1', created_at: new Date().toISOString(), data }; comments.push(row); failList = true; return row; }
   });
   google.restore = async () => {}; google.events = async () => []; google.prepare = async () => {};
@@ -72,17 +72,16 @@ test('저장 후 조회 실패가 댓글 중복을 유발하지 않고 권한과
     await listeners.get('submit')({ target: recordForm('event', { title: 'saved event 2', date: '2026-01-01', text: '' }), preventDefault() {} });
     assert.equal(editor.open, false); assert.match(app.innerHTML, /일정은 저장됐지만 캘린더를 갱신하지 못했어요/);
 
-    repository.markRead = async () => { throw new Error('read failure'); };
-    const message = { value: 'saved message' };
-    const chatForm = { id: 'chat-form', elements: { message }, querySelector: s => s === '[type="submit"]' ? { textContent: 'send', isConnected: true } : null };
-    await listeners.get('submit')({ target: chatForm, preventDefault() {} });
-    assert.equal(savedCount, 2); assert.equal(message.value, ''); assert.equal(notified, 1);
-    assert.match(app.innerHTML, /메시지는 전송됐지만/); assert.match(toast.textContent, /메시지는 전송됐어요/);
+    const retiredForm = { id: 'chat-form', elements: { message: { value: 'ignored' } } };
+    await listeners.get('submit')({ target: retiredForm, preventDefault() {} });
+    assert.equal(savedCount, 1); assert.equal(notified, 0);
+    assert.equal(retiredForm.elements.message.value, 'ignored');
+    assert.doesNotMatch(app.innerHTML, /data-view="chat"/);
     await listeners.get('click')({ target: { closest: () => ({ dataset: { view: 'home' } }) } });
     const homeHeader = app.innerHTML.match(/<header class="topbar[^>]*>[\s\S]*?<\/header>/)[0];
     assert.match(homeHeader, /data-action="notice-list"/);
     assert.doesNotMatch(homeHeader, /OUR LITTLE SPACE|connection|avatar-button/);
     assert.doesNotMatch(app.innerHTML, /demo-banner/);
-    assert.ok(app.innerHTML.indexOf('anniversary-card') < app.innerHTML.indexOf('page-heading'));
+    assert.ok(app.innerHTML.indexOf('museum-masthead') < app.innerHTML.indexOf('museum-photo'));
   } finally { globalThis.setInterval = oldInterval; globalThis.FormData = oldFormData; Object.defineProperty(auth, 'googleWarning', warning); }
 });

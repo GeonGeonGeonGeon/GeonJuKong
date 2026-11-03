@@ -27,7 +27,7 @@ test('shared polling refreshes settings, reads, calendar and comments without lo
   const { google } = await import('../src/google.js');
   const post = { id: 'post', kind: 'post', author_id: 'two', created_at: '2026-01-01T00:00:00Z', data: { title: 'shared', date: '2026-01-01', text: 'text' } };
   let rows = [post], read = false, startDate = '2020-01-01';
-  Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => rows, readAt: async () => [], notificationReads: async () => read ? [{ record_id: 'post' }] : [], coupleSettings: async () => ({ startDate }) });
+  Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => rows, profiles: async () => [], bucketItems: async () => [], readAt: async () => [], notificationReads: async () => read ? [{ record_id: 'post' }] : [], coupleSettings: async () => ({ startDate }) });
   google.prepare = async () => {};
   google.restore = async () => {};
   const event = title => [{ id: 'event', data: { title, date: dateKey(), time: '' } }];

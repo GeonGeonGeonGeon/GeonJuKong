@@ -16,19 +16,23 @@ test('캘린더 동기화 실패는 공유 공간을 유지하며 재시도로 �
   globalThis.history = { replaceState() {} };
   const originalInterval = globalThis.setInterval;
   globalThis.setInterval = () => 0;
-  const { repository } = await import('../src/backend.js');
+  const { auth, repository } = await import('../src/backend.js');
   const { google } = await import('../src/google.js');
+  auth.takeProviderToken = () => 'login-google-token';
+  let acceptedToken;
+  google.acceptNativeToken = async (token, email) => { acceptedToken = { token, email }; };
   Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => [], readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01' }) });
   google.prepare = async () => {};
   Object.defineProperty(google, 'connected', { configurable: true, get: () => true });
   let attempts = 0;
   google.restore = async () => {};
   google.events = async () => { if (++attempts === 1) throw new Error('일시적인 네트워크 오류'); return []; };
-  const future = new Date(); future.setDate(future.getDate() + 90);
+  const future = new Date();
   google.upcomingEvents = async () => [{ id: 'future', kind: 'event', data: { title: 'separate upcoming event', date: dateKey(future), time: '' } }];
   try {
     await import('../src/app.js?calendar-sync');
     for (let i = 0; i < 20 && !app.innerHTML.includes('일시적인 네트워크 오류'); i++) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.deepEqual(acceptedToken, { token: 'login-google-token', email: 'one@example.com' });
     assert.match(app.innerHTML, /일시적인 네트워크 오류/);
     assert.match(app.innerHTML, /data-action="calendar-retry"/);
     assert.doesNotMatch(app.innerHTML, /access-error/);

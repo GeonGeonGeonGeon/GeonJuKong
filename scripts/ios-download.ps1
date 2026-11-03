@@ -23,10 +23,14 @@ try {
         $run = @($json | ConvertFrom-Json) | Where-Object { $_.conclusion -eq 'success' } | Sort-Object createdAt -Descending | Select-Object -First 1
         if (-not $run) { throw 'No successful iOS build was found. Check the Actions page.' }
         $RunId = [string]$run.databaseId
+        Write-Host "Most recent successful iOS build: $RunId ($($run.createdAt))"
     }
     $destination = Join-Path $project "artifacts/ios-build-$RunId"
-    & $gh run download $RunId --repo $repository --name GeonJuKong-ios-unsigned --dir $destination
-    if ($LASTEXITCODE -ne 0) { throw 'Could not download the iOS build artifact.' }
+    $ErrorActionPreference = 'Continue'
+    $downloadOutput = & $gh run download $RunId --repo $repository --name GeonJuKong-ios-unsigned --dir $destination 2>&1
+    $downloadExit = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($downloadExit -ne 0) { throw "Could not download the artifact from run ${RunId}: $($downloadOutput -join ' ')" }
     $ipa = Join-Path $destination 'GeonJuKong-unsigned.ipa'
     if (-not (Test-Path -LiteralPath $ipa -PathType Leaf)) { throw 'The artifact has no IPA file.' }
     $contents = & tar -tf $ipa

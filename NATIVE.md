@@ -47,7 +47,7 @@ android/app/build/outputs/apk/debug/건주콩.apk
 
 ### Windows에서 Sideloadly용 IPA 만들기
 
-`iosBuild.bat`을 실행하면 현재 작업 파일로 임시 빌드 브랜치를 만들어 GitHub Actions의 macOS 환경에서 iOS 앱을 새로 빌드하고 `artifacts/ios-build-<실행번호>/GeonJuKong-unsigned.ipa`를 내려받습니다. 현재 브랜치와 커밋은 바뀌지 않으며, 임시 브랜치는 빌드 후 삭제됩니다. Git과 GitHub CLI가 없으면 프로젝트의 `.tools/`에 자동으로 내려받으므로 인터넷 연결이 필요합니다. 처음 실행할 때 GitHub 로그인을 완료하세요. GitHub 저장소의 기본 브랜치에 `ios-build.yml` workflow가 있어야 합니다. 새 IPA를 검증한 뒤 배치 파일이 이전 로컬 템플릿과 IPA를 지웁니다. Sideloadly에 새 IPA를 넣어 본인 Apple 계정으로 서명하고 설치하세요. 실제 기기 설치는 별도로 확인해야 합니다.
+`iosBuild.bat`을 실행하면 현재 브랜치에 직접 커밋·푸시한 소스로 GitHub Actions의 macOS 환경에서 iOS 앱을 새로 빌드하고 `artifacts/ios-build-<실행번호>/GeonJuKong-unsigned.ipa`를 내려받습니다. 로컬 변경이 남았거나 현재 커밋이 원격 브랜치와 다르면 빌드를 시작하지 않습니다. 배치 파일은 브랜치를 만들거나 커밋·푸시하지 않습니다. Git과 GitHub CLI가 없으면 프로젝트의 `.tools/`에 자동으로 내려받으므로 인터넷 연결이 필요합니다. 처음 실행할 때 GitHub 로그인을 완료하세요. GitHub 저장소의 기본 브랜치에 `ios-build.yml` workflow가 있어야 합니다. 새 IPA를 검증한 뒤 배치 파일이 이전 로컬 템플릿과 IPA를 지웁니다. Sideloadly에 새 IPA를 넣어 본인 Apple 계정으로 서명하고 설치하세요. 실제 기기 설치는 별도로 확인해야 합니다.
 
 GitHub Actions에서 빌드만 먼저 끝냈다면 `iosDownload.bat`을 실행하세요. 가장 최근 성공한 iOS 빌드의 IPA를 `artifacts/ios-build-<실행번호>/`에 내려받고 Sideloadly에서 찾기 쉬운 `artifacts/GeonJuKong-latest.ipa`도 만듭니다. `iosBuild.bat`으로 빌드한 경우에도 같은 최신 IPA 파일이 생성됩니다. 특정 실행을 받으려면 명령 프롬프트에서 `iosDownload.bat <실행번호>`를 실행할 수 있습니다. GitHub 웹 화면에서는 **Actions → iOS unsigned build → 성공한 실행 → Artifacts → GeonJuKong-ios-unsigned**에서 결과 ZIP을 내려받아 그 안의 `GeonJuKong-unsigned.ipa`를 꺼내면 됩니다.
 

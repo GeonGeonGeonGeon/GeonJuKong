@@ -3,6 +3,6 @@
   "appName": "건주콩",
   "webDir": "dist",
   "server": { "androidScheme": "https", "iosScheme": "capacitor" },
-  "android": { "allowMixedContent": false, "backgroundColor": "#faf8f2" },
+  "android": { "allowMixedContent": false, "backgroundColor": "#faf8f2", "adjustMarginsForEdgeToEdge": "auto" },
   "ios": { "backgroundColor": "#faf8f2", "contentInset": "automatic" }
 }

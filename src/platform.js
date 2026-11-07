@@ -3,6 +3,12 @@ export function isAuthCallback(value) {
   try { const url = new URL(value); return url.protocol === 'com.geonjukong.couple:' && url.hostname === 'auth' && url.pathname === '/callback' && !url.username && !url.password; } catch { return false; }
 }
 export const native = {
+  async setBadge(hasUnread) {
+    if (this.active) return window.GEONJUKONG_NATIVE.setBadge?.(hasUnread);
+    if (hasUnread) await navigator.setAppBadge?.(); else await navigator.clearAppBadge?.();
+  },
+  get canPickMedia() { return this.active && typeof window.GEONJUKONG_NATIVE.pickMedia === 'function'; },
+  async pickMedia() { return window.GEONJUKONG_NATIVE.pickMedia(); },
   async onBack(handler) { return this.active ? window.GEONJUKONG_NATIVE.onBack?.(handler) : undefined; },
   async exit() { if (this.active) await window.GEONJUKONG_NATIVE.exit(); },
   get active() { return Boolean(window.GEONJUKONG_NATIVE?.active); },

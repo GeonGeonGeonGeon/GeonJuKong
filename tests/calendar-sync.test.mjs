@@ -21,7 +21,7 @@ test('캘린더 동기화 실패는 공유 공간을 유지하며 재시도로 �
   auth.takeProviderToken = () => 'login-google-token';
   let acceptedToken;
   google.acceptNativeToken = async (token, email) => { acceptedToken = { token, email }; };
-  Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => [], readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01' }) });
+  Object.assign(repository, { members: async () => [{ slot: 2, email: 'two@example.com', display_name: '기본 이름 2' }, { slot: 1, email: 'one@example.com', display_name: '기본 이름 1' }], profiles: async () => [{ user_id: 'user-2', email: 'two@example.com', data: { name: '여자 프로필' } }, { user_id: 'user-1', email: 'one@example.com', data: { name: '남자 프로필' } }], list: async () => [], readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01' }) });
   google.prepare = async () => {};
   Object.defineProperty(google, 'connected', { configurable: true, get: () => true });
   let attempts = 0;
@@ -35,6 +35,8 @@ test('캘린더 동기화 실패는 공유 공간을 유지하며 재시도로 �
     assert.deepEqual(acceptedToken, { token: 'login-google-token', email: 'one@example.com' });
     assert.match(app.innerHTML, /일시적인 네트워크 오류/);
     assert.match(app.innerHTML, /data-action="calendar-retry"/);
+    assert.match(app.innerHTML, /event-tone-male"><i aria-hidden="true"><\/i>남자 프로필 일정/);
+    assert.match(app.innerHTML, /event-tone-female"><i aria-hidden="true"><\/i>여자 프로필 일정/);
     assert.doesNotMatch(app.innerHTML, /access-error/);
     await listeners.get('click')({ target: { closest: () => ({ dataset: { action: 'calendar-retry' } }) } });
     assert.equal(attempts, 2);

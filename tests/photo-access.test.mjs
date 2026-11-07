@@ -31,9 +31,9 @@ test('Drive 접근 거부 후 사진을 선택하면 원본을 다시 불러온�
     assert.match(editor.innerHTML, /data-action="photo-access"/);
     assert.match(status.textContent, /접근이 거부/); assert.equal(accessButton.hidden, false);
     await click({ action: 'photo-access', id: 'photo' });
-    assert.equal(editor.open, true); assert.match(toast.textContent, /선택 취소/); assert.equal(requests, 1);
+    assert.equal(editor.open, true); assert.match(toast.textContent, /선택 취소/); assert.equal(requests, 2);
     cancel = false; await click({ action: 'photo-access', id: 'photo' }); await tick();
-    assert.equal(editor.open, true); assert.equal(picks, 2); assert.equal(requests, 2); assert.equal(img.src, 'blob:allowed');
+    assert.equal(editor.open, true); assert.equal(picks, 2); assert.equal(requests, 3); assert.equal(img.src, 'blob:allowed');
     img.onload(); assert.equal(cover.hidden, true); assert.equal(accessButton.hidden, true);
   } finally { Object.defineProperties(repository, repositoryProperties); Object.defineProperties(google, googleProperties); globalThis.setInterval = originalInterval; URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; }
 });

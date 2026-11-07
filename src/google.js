@@ -111,7 +111,7 @@ export const google = {
       if (finish <= begin) throw new Error('종료 시간은 시작 시간보다 뒤여야 합니다.');
       start = { dateTime: begin.toISOString() }; end = { dateTime: finish.toISOString() };
     } else { start = { date: data.date }; end = { date: data.endDate ? nextDay(data.endDate) : nextDay(data.date) }; if (end.date <= data.date) throw new Error('종료 날짜를 확인해 주세요.'); }
-    return api(`${eventPath()}${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ summary: data.title, description: data.text || '', start, end }) });
+    return api(`${eventPath()}${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ summary: data.title, description: data.text || '', start, end, extendedProperties: { shared: { geonjukongTarget: data.target || 'shared' } } }) });
   },
   async deleteEvent(id) { await api(`${eventPath()}/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
   async pickFolder() {

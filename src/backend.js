@@ -142,7 +142,7 @@ export const repository = {
       const old = existingId ? records.find(r => r.id === existingId) : null;
       if (old && (old.kind !== kind || old.data.space !== data.space)) throw new Error('기록의 종류나 공간은 바꿀 수 없습니다.');
       if (kind === 'comment') {
-        if (!records.some(row => row.id === data.postId && ['diary', 'post'].includes(row.kind))) throw new Error('댓글을 작성할 기록이 없습니다.');
+        if (!records.some(row => row.id === data.postId && row.kind === 'post')) throw new Error('댓글을 작성할 기록이 없습니다.');
         if (old && (old.data.postId !== data.postId || old.data.replyTo !== data.replyTo)) throw new Error('답글 대상을 바꿀 수 없습니다.');
         if (!old && data.replyTo && !records.some(row => row.id === data.replyTo && row.kind === 'comment' && row.data.postId === data.postId && !row.data.replyTo)) throw new Error('같은 기록의 댓글에만 답글을 작성할 수 있습니다.');
       }

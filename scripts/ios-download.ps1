@@ -20,7 +20,13 @@ try {
     if (-not $RunId) {
         $json = & $gh run list --repo $repository --workflow ios-build.yml --limit 30 --json databaseId,conclusion,createdAt
         if ($LASTEXITCODE -ne 0) { throw 'Could not list iOS builds.' }
-        $run = @($json | ConvertFrom-Json) | Where-Object { $_.conclusion -eq 'success' } | Sort-Object createdAt -Descending | Select-Object -First 1
+        $runs = ConvertFrom-Json -InputObject ($json -join "`n")
+        foreach ($candidate in $runs) {
+            if ($candidate.conclusion -eq 'success') {
+                $run = $candidate
+                break
+            }
+        }
         if (-not $run) { throw 'No successful iOS build was found. Check the Actions page.' }
         $RunId = [string]$run.databaseId
         Write-Host "Most recent successful iOS build: $RunId ($($run.createdAt))"

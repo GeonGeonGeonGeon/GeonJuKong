@@ -31,6 +31,11 @@ export async function configureNativeProject(root, platform) {
     await writeFile(new URL('values/geonjukong_colors.xml',res),'<resources><color name="geonjukong_background">#f4eddb</color></resources>');
     for(const name of ['ic_launcher.xml','ic_launcher_round.xml'])await writeFile(new URL(`mipmap-anydpi-v26/${name}`,res),'<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@color/geonjukong_background"/><foreground android:drawable="@drawable/geonjukong_foreground"/></adaptive-icon>');
   }else{
+    const delegate = new URL('ios/App/App/AppDelegate.swift', root);
+    const storyboard = new URL('ios/App/App/Base.lproj/Main.storyboard', root);
+    const picker = iosMediaPickerProject(await readFile(delegate, 'utf8'), await readFile(storyboard, 'utf8'), await readFile(new URL('./ios-media-picker.swift', import.meta.url), 'utf8'));
+    await writeFile(delegate, iosAppBadgeProject(picker.delegate, await readFile(new URL('./ios-app-badge.swift', import.meta.url), 'utf8')));
+    await writeFile(storyboard, picker.storyboard);
     const plist=new URL('ios/App/App/Info.plist',root);await writeFile(plist,iosCallbackPlist(await readFile(plist,'utf8')));
     const privacy=new URL('ios/App/PrivacyInfo.xcprivacy',root);
     try { await access(privacy); } catch { await writeFile(privacy,'<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>NSPrivacyAccessedAPITypes</key><array><dict><key>NSPrivacyAccessedAPIType</key><string>NSPrivacyAccessedAPICategoryFileTimestamp</string><key>NSPrivacyAccessedAPITypeReasons</key><array><string>C617.1</string></array></dict></array></dict></plist>'); }
@@ -38,4 +43,26 @@ export async function configureNativeProject(root, platform) {
     await writeFile(new URL('AppIcon-512@2x.png',dir),png(1024));
     await writeFile(new URL('Contents.json',dir),JSON.stringify({images:[{filename:'AppIcon-512@2x.png',idiom:'universal',platform:'ios',size:'1024x1024'}],info:{author:'xcode',version:1}},null,2));
   }
+}
+
+export function iosMediaPickerProject(delegate, storyboard, source) {
+  const original = /customClass="CAPBridgeViewController" customModule="Capacitor"/;
+  const custom = 'customClass="OrderedMediaViewController" customModule="App" customModuleProvider="target"';
+  if (!original.test(storyboard) && !storyboard.includes(custom)) throw new Error('iOS Main.storyboard에서 사진 선택기를 연결할 ViewController를 찾지 못했어요.');
+  const clean = delegate.replace(/\r?\n\/\/ BEGIN ORDERED MEDIA PICKER\r?\n[\s\S]*?\/\/ END ORDERED MEDIA PICKER\r?\n?/, '').trimEnd();
+  return {
+    delegate: `${clean}\n\n// BEGIN ORDERED MEDIA PICKER\n${source.trimEnd()}\n// END ORDERED MEDIA PICKER\n`,
+    storyboard: storyboard.replace(original, custom)
+  };
+}
+
+export function iosAppBadgeProject(delegate, source) {
+  const registration = 'bridge?.registerPluginInstance(AppBadgePlugin())';
+  let clean = delegate.replace(/\r?\n\/\/ BEGIN APP BADGE\r?\n[\s\S]*?\/\/ END APP BADGE\r?\n?/, '').trimEnd();
+  if (!clean.includes(registration)) {
+    const hook = /override func capacitorDidLoad\(\) \{/;
+    if (!hook.test(clean)) throw new Error('iOS 앱 배지를 등록할 ViewController를 찾지 못했어요.');
+    clean = clean.replace(hook, match => `${match}\n        ${registration}`);
+  }
+  return `${clean}\n\n// BEGIN APP BADGE\n${source.trimEnd()}\n// END APP BADGE\n`;
 }

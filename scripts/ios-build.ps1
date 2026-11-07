@@ -64,18 +64,26 @@ try {
         Start-Sleep -Seconds 2
         $json = & $gh run list --workflow ios-build.yml --branch $branch --limit 30 --json databaseId,displayTitle,headSha
         if ($LASTEXITCODE -ne 0) { throw 'Could not locate the iOS build run.' }
-        $run = @($json | ConvertFrom-Json) | Where-Object { $_.displayTitle -eq "iOS unsigned build $buildId" -and $_.headSha -eq $head } | Select-Object -First 1
+        $runs = ConvertFrom-Json -InputObject ($json -join "`n")
+        foreach ($candidate in $runs) {
+            if ($candidate.displayTitle -eq "iOS unsigned build $buildId" -and $candidate.headSha -eq $head) {
+                $run = $candidate
+                break
+            }
+        }
     }
     if (-not $run) { throw 'The new build did not appear in GitHub Actions.' }
-    & $gh run watch $run.databaseId --exit-status
+    $runId = [string]$run.databaseId
+    if ($runId -notmatch '^\d+$') { throw 'The build returned an invalid run ID.' }
+    & $gh run watch $runId --exit-status
     if ($LASTEXITCODE -ne 0) { throw 'The iOS build failed. Check its GitHub Actions log.' }
 
-    $destination = Join-Path $project "artifacts/ios-build-$($run.databaseId)"
+    $destination = Join-Path $project "artifacts/ios-build-$runId"
     $ErrorActionPreference = 'Continue'
-    $downloadOutput = & $gh run download $run.databaseId --name GeonJuKong-ios-unsigned --dir $destination 2>&1
+    $downloadOutput = & $gh run download $runId --name GeonJuKong-ios-unsigned --dir $destination 2>&1
     $downloadExit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
-    if ($downloadExit -ne 0) { throw "Could not download the new IPA from run $($run.databaseId): $($downloadOutput -join ' ')" }
+    if ($downloadExit -ne 0) { throw "Could not download the new IPA from run ${runId}: $($downloadOutput -join ' ')" }
     $ipa = Join-Path $destination 'GeonJuKong-unsigned.ipa'
     if (-not (Test-Path -LiteralPath $ipa -PathType Leaf)) { throw 'The build artifact has no IPA.' }
     $contents = & tar -tf $ipa

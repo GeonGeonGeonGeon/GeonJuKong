@@ -48,8 +48,8 @@ test('공유 저장소: PKCE 교환, 토큰 갱신, 페이지 조회와 비인�
     };
     const rows=await repository.list();assert.equal(rows.length,501);assert.equal(pages,2);assert.equal(refreshed,1);
     handler=()=>Response.json([]);
-    await assert.rejects(repository.save('live','user-1','diary',{text:'다른 사람 글 변경',date:'2026-10-26'},'not-owned'),/작성자만/);
-    await assert.rejects(repository.remove('live','user-1',{id:'a',author_id:'user-2',kind:'diary'}),/작성자만/);
+    await assert.rejects(repository.save('live','user-1','post',{title:'다른 사람 글 변경',date:'2026-10-26'},'not-owned'),/작성자만/);
+    await assert.rejects(repository.remove('live','user-1',{id:'a',author_id:'user-2',kind:'post'}),/작성자만/);
     handler=()=>Response.json({message:'permission denied'},{status:403});await assert.rejects(repository.list(),/permission denied/);
     handler=(url,options)=>{assert.match(url,/records\?on_conflict=id/);assert.match(options.headers.Prefer,/resolution=ignore-duplicates/);assert.deepEqual(JSON.parse(options.body),{id:'notice-uuid',author_id:'user-1',kind:'event_notice',data:{text:'Plan',title:'Plan',date:'2026-12-01',eventId:'google-event'}});return Response.json([]);};
     await repository.saveCalendarNotice('user-1',{id:'notice-uuid',title:'Plan',date:'2026-12-01',eventId:'google-event'});

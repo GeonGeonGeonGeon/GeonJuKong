@@ -1,12 +1,18 @@
 // scripts/native.mjs에서만 번들링하는 설치형 앱 진입점입니다.
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { pickOrderedMedia } from './native-media.js';
+
+const mediaPicker = registerPlugin('OrderedMediaPicker');
+const appBadge = registerPlugin('AppBadge');
 
 window.GEONJUKONG_NATIVE = {
   active: Capacitor.isNativePlatform(),
+  setBadge: hasUnread => appBadge.set({ count: hasUnread ? 1 : 0 }),
+  pickMedia: Capacitor.getPlatform() === 'ios' ? () => pickOrderedMedia(mediaPicker, path => Capacitor.convertFileSrc(path)) : undefined,
   onBack: handler => Capacitor.getPlatform() === 'android' ? App.addListener('backButton', handler) : undefined,
   exit: () => App.exitApp(),
   open: url => Browser.open({ url }),

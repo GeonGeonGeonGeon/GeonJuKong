@@ -1,4 +1,4 @@
-export const kinds = ['event', 'diary', 'post', 'comment', 'message'];
+export const kinds = ['event', 'post', 'comment', 'message'];
 export const escapeHtml = (v = '') => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export function dateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -13,8 +13,9 @@ export function validateRecord(kind, data) {
   const field = ['event', 'post'].includes(kind) ? 'title' : 'text';
   if (!String(data[field] || '').trim()) throw new Error(field === 'title' ? '제목을 적어 주세요.' : '내용을 적어 주세요.');
   if (String(data[field]).length > (field === 'title' ? 120 : 10000)) throw new Error('내용이 너무 깁니다.');
-  if (['event', 'diary', 'post'].includes(kind) && (!/^\d{4}-\d{2}-\d{2}$/.test(data.date || '') || dateKey(new Date(`${data.date}T12:00:00`)) !== data.date)) throw new Error('올바른 날짜를 선택해 주세요.');
+  if (['event', 'post'].includes(kind) && (!/^\d{4}-\d{2}-\d{2}$/.test(data.date || '') || dateKey(new Date(`${data.date}T12:00:00`)) !== data.date)) throw new Error('올바른 날짜를 선택해 주세요.');
   if (kind === 'event' && data.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(data.time)) throw new Error('올바른 시간을 선택해 주세요.');
+  if (kind === 'event' && data.target !== undefined && !['shared', 'member-1', 'member-2'].includes(data.target)) throw new Error('일정 대상을 다시 선택해 주세요.');
   if (kind === 'event' && data.endDate) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.endDate) || dateKey(new Date(`${data.endDate}T12:00:00`)) !== data.endDate || data.endDate < data.date) throw new Error('종료 날짜를 확인해 주세요.');
     if (data.time && data.endTime && new Date(`${data.endDate}T${data.endTime}:00`) <= new Date(`${data.date}T${data.time}:00`)) throw new Error('종료 시간은 시작 시간보다 뒤여야 합니다.');
@@ -35,7 +36,8 @@ export function googleEvent(item) {
   const start = item.start?.dateTime || item.start?.date;
   if (!start || item.status === 'cancelled') return null;
   const d = item.start.dateTime ? new Date(start) : null;
-  return { id: item.id, kind: 'event', author_id: item.creator?.email || '', created_at: item.created, data: { title: item.summary || '(제목 없음)', text: item.description || '', date: d ? dateKey(d) : start, time: d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '', end: item.end, google: true } };
+  const target = item.extendedProperties?.shared?.geonjukongTarget;
+  return { id: item.id, kind: 'event', author_id: item.creator?.email || '', created_at: item.created, data: { title: item.summary || '(제목 없음)', text: item.description || '', date: d ? dateKey(d) : start, time: d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '', end: item.end, target: ['member-1', 'member-2'].includes(target) ? target : 'shared', google: true } };
 }
 export function safeFileType(file) {
   const type = file.type.toLowerCase();

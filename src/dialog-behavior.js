@@ -14,6 +14,35 @@ export function unlockPage() {
   document.documentElement?.classList.remove('modal-open');
   window.scrollTo({ top: saved.y, behavior: 'instant' });
 }
+export function focusReplyInput(editor, input, form) {
+  const viewport = window.visualViewport;
+  const updateViewport = () => {
+    editor.style.setProperty('--reply-viewport-top', `${viewport?.offsetTop || 0}px`);
+    editor.style.setProperty('--reply-viewport-height', `${viewport?.height || window.innerHeight}px`);
+  };
+  const keepVisible = () => {
+    updateViewport();
+    if (editor.open && document.activeElement === input) form.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+  };
+  editor.classList.add('reply-composing');
+  updateViewport();
+  // Focus during the reply tap so mobile browsers can open the keyboard.
+  input.focus({ preventScroll: true });
+  form.scrollIntoView({ block: 'center', behavior: 'instant' });
+  input.addEventListener('focus', keepVisible);
+  viewport?.addEventListener('resize', keepVisible);
+  viewport?.addEventListener('scroll', keepVisible);
+  window.addEventListener('resize', keepVisible);
+  return () => {
+    input.removeEventListener('focus', keepVisible);
+    viewport?.removeEventListener('resize', keepVisible);
+    viewport?.removeEventListener('scroll', keepVisible);
+    window.removeEventListener('resize', keepVisible);
+    editor.classList.remove('reply-composing');
+    editor.style.removeProperty('--reply-viewport-top');
+    editor.style.removeProperty('--reply-viewport-height');
+  };
+}
 export function installDialogDismissal(editor, back) {
   let startedOutside = false;
   const outside = event => {

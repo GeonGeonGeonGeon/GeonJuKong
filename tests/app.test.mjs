@@ -9,14 +9,15 @@ test('summary comments open independently and stay in the popup through comment 
   const values = new Map([['geonjukong-seeded','1'],['geonjukong-demo-couple',JSON.stringify({startDate:'2020-01-01'})]]);
   const listeners = new Map(), windowEvents = new Map();
   const app = {innerHTML:''}, toast = {textContent:'',classList:{add(){},remove(){}}};
-  const editor = {innerHTML:'',open:false,scrollTop:0,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){}};
+  const editor = {innerHTML:'',open:false,scrollTop:0,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){},classList:{add(){},remove(){}},style:{setProperty(){},removeProperty(){}}};
   let focused = 0;
-  globalThis.window = {APP_CONFIG:{},addEventListener:(type,fn)=>windowEvents.set(type,fn),scrollTo(){}};
+  globalThis.window = {APP_CONFIG:{},addEventListener:(type,fn)=>windowEvents.set(type,fn),removeEventListener:type=>windowEvents.delete(type),scrollTo(){}};
   Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
   globalThis.document = {
     querySelector(selector) {
       if (selector === '#record-form' && editor.innerHTML.includes('data-kind="comment"')) return {dataset:{kind:'comment'}};
-      if (selector === '#comment-text') return {focus(){focused++;}};
+      if (selector === '#comment-text') return {focus(){focused++;},addEventListener(){},removeEventListener(){}};
+      if (selector === '#comment-form') return {scrollIntoView(){}};
       return {'#app':app,'#editor':editor,'#toast':toast}[selector] || null;
     },
     querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners.set(type,fn),activeElement:{matches:()=>false}
@@ -33,6 +34,20 @@ test('summary comments open independently and stay in the popup through comment 
   const originals = {list:local.list,put:local.put,remove:local.remove};
   local.list = async()=>[...rows.values()]; local.put = async row=>rows.set(row.id,row); local.remove = async id=>rows.delete(id);
   const click = dataset=>listeners.get('click')({target:{closest:()=>({dataset})}});
+  const openExcerpt = async row=>{
+    const buttons = [...app.innerHTML.matchAll(/<button\b([^>]*)class="memory-excerpt"([^>]*)>(.*?)<\/button>/gs)];
+    const button = buttons.find(([,before,after])=>`${before}${after}`.includes(`data-id="${row.id}"`));
+    assert.ok(button, `Post ${row.id} has a clickable body preview`);
+    const attributes = button[1] + button[2];
+    assert.match(attributes, /type="button"/);
+    assert.match(attributes, /aria-haspopup="dialog"/);
+    assert.equal(button[3], row.data.text);
+    await click({action:attributes.match(/data-action="([^"]+)"/)[1],id:row.id});
+    assert.equal(editor.open,true);
+    assert.ok(editor.innerHTML.includes(row.data.text));
+    assert.doesNotMatch(editor.innerHTML,/comments-post-title/);
+    await click({action:'close'});
+  };
   const submit = async form=>{
     const error = {textContent:''};
     form.querySelector = selector=>selector === '[type="submit"]' ? {textContent:'Save',isConnected:true} : error;
@@ -48,7 +63,10 @@ test('summary comments open independently and stay in the popup through comment 
     await import('../src/app.js?comments-popup');
     for(let i=0;i<30&&!app.innerHTML.includes('Popup post');i++) await new Promise(resolve=>setTimeout(resolve,5));
     assert.match(app.innerHTML,/data-action="open-comments" data-id="popup-post"/);
+    await openExcerpt(post);
     await click({view:'memories'});
+    await openExcerpt(post);
+    await openExcerpt(other);
     assert.match(app.innerHTML,/aria-label="Popup post 댓글 0개 보기" aria-haspopup="dialog"/);
     await click({action:'open-comments',id:post.id}); assertPopup();
     assert.match(editor.innerHTML,/첫 댓글/);
@@ -90,9 +108,9 @@ test('summary comments open independently and stay in the popup through comment 
 test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정·버킷리스트와 작성자 권한',async()=>{
   const rows=new Map(),files=new Map(),values=new Map(),listeners=new Map();
   const replyFocus=[],replyScroll=[];
-  const replyInput={focus:()=>replyFocus.push(true)},replyForm={scrollIntoView:options=>replyScroll.push(options)};
-  const app={innerHTML:''},toast={textContent:'',classList:{add(){},remove(){}}},editor={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){}};
-  globalThis.window={APP_CONFIG:{},addEventListener(){},scrollTo(){}};
+  const replyInput={focus:options=>replyFocus.push(options),addEventListener(){},removeEventListener(){}},replyForm={scrollIntoView:options=>replyScroll.push(options)};
+  const app={innerHTML:''},toast={textContent:'',classList:{add(){},remove(){}}},editor={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){},classList:{add(){},remove(){}},style:{setProperty(){},removeProperty(){}}};
+  globalThis.window={APP_CONFIG:{},addEventListener(){},removeEventListener(){},scrollTo(){}};
   Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
   globalThis.document={querySelector(selector){return({'#app':app,'#editor':editor,'#toast':toast,'#comment-text':replyInput,'#comment-form':replyForm})[selector]||null;},querySelectorAll(){return[];},addEventListener(type,fn){listeners.set(type,fn);},activeElement:{matches(){return false;}}};
   globalThis.localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
@@ -119,7 +137,8 @@ test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정�
     assert.ok(app.innerHTML.indexOf('museum-masthead') < app.innerHTML.indexOf('museum-photo'));
     assert.ok(app.innerHTML.indexOf('museum-photo') < app.innerHTML.indexOf('schedule-card'));
     assert.ok(app.innerHTML.indexOf('schedule-card') < app.innerHTML.indexOf('museum-memories'));
-    assert.doesNotMatch(app.innerHTML,/home-diary|TODAY’S DIARY|일기/);
+    assert.match(app.innerHTML, /data-view="memories"[^>]*>[\s\S]*?<span>일기<\/span><\/button>/);
+    assert.doesNotMatch(app.innerHTML.match(/<main>[\s\S]*?<\/main>/)[0],/home-diary|TODAY’S DIARY|일기/);
     const recentCard=app.innerHTML.match(/<section class="home-section memories-section[\s\S]*?<\/section>/)[0];
     assert.match(recentCard,/memory-text-only/);assert.doesNotMatch(recentCard,/memory-cover|paper-drawing/);
     assert.ok((app.innerHTML.match(/class="home-event"/g) || []).length <= 1);
@@ -135,7 +154,7 @@ test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정�
     await click({action:'refresh'});assert.doesNotMatch(app.innerHTML,/숨겨진 예전 일기|diary-photo/);
     await click({action:'notice-list'});assert.doesNotMatch(editor.innerHTML,/legacy-diary/);await click({action:'close'});
     await click({action:'open-post',id:'legacy-diary'});assert.equal(editor.open,false);
-    await click({view:'calendar'});assert.doesNotMatch(app.innerHTML,/일기|diary-photo|diary-dot/);
+    await click({view:'calendar'});assert.doesNotMatch(app.innerHTML.match(/<main>[\s\S]*?<\/main>/)[0],/일기|diary-photo|diary-dot/);
     await click({view:'memories'});
     assert.equal(await submit('post',{title:'사진 없는 추억',date:'2026-10-26',text:'우리의 기록'}),'');
     const post=[...rows.values()].find(r=>r.data.title==='사진 없는 추억');assert.ok(post);
@@ -147,7 +166,7 @@ test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정�
     rows.delete('sort-date');rows.delete('sort-upload');
     rows.set('legacy-board',{...post,id:'legacy-board',data:{...post.data,title:'Legacy shared post',space:'board'}});
     await click({action:'refresh'});assert.match(app.innerHTML,/Legacy shared post/);
-    await click({view:'memories'});assert.match(app.innerHTML,/<h1>게시판<\/h1>/);assert.doesNotMatch(app.innerHTML,/일기|보관함|memory-cover|memory-gallery|paper-drawing/);assert.match(app.innerHTML,/사진 없는 추억/);await click({action:'open-post',id:post.id});assert.match(editor.innerHTML,/둘이 나누는 이야기/);
+    await click({view:'memories'});assert.match(app.innerHTML,/<h1>게시판<\/h1>/);assert.doesNotMatch(app.innerHTML.match(/<main>[\s\S]*?<\/main>/)[0],/일기|보관함|memory-cover|memory-gallery|paper-drawing/);assert.match(app.innerHTML,/사진 없는 추억/);await click({action:'open-post',id:post.id});assert.match(editor.innerHTML,/둘이 나누는 이야기/);
     const commentError={textContent:''};const commentForm={id:'comment-form',dataset:{post:post.id},elements:{text:{value:'좋아!'}},querySelector:s=>s==='[type="submit"]'?{textContent:'댓글',isConnected:true}:commentError};
     await listeners.get('submit')({target:commentForm,preventDefault(){}});assert.equal(commentError.textContent,'');assert.match(editor.innerHTML,/좋아!/);
     const comment=[...rows.values()].find(r=>r.kind==='comment'&&r.data.text==='좋아!');editor.scrollTop=125;await click({action:'edit',id:comment.id});
@@ -160,7 +179,7 @@ test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정�
     assert.ok(editor.innerHTML.indexOf(`id="comment-${comment.id}"`) < editor.innerHTML.indexOf('id="comment-form"'));
     assert.ok(editor.innerHTML.indexOf('id="comment-form"') < editor.innerHTML.indexOf(`id="comment-${nextComment.id}"`));
     assert.match(editor.innerHTML,/class="comment-form reply-form"/);assert.match(editor.innerHTML,/답글 남기기/);
-    assert.equal(replyFocus.length,1);assert.deepEqual(replyScroll,[{block:'nearest'}]);
+    assert.deepEqual(replyFocus,[{preventScroll:true}]);assert.deepEqual(replyScroll,[{block:'center',behavior:'instant'}]);
     await click({action:'cancel-reply'});
     assert.doesNotMatch(editor.innerHTML,/reply-form|data-action="cancel-reply"/);
     assert.ok(editor.innerHTML.indexOf('id="comment-form"') > editor.innerHTML.indexOf(`id="comment-${nextComment.id}"`));

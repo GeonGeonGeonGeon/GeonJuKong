@@ -12,13 +12,13 @@ test('shared polling refreshes settings, reads, calendar and comments without lo
   const app = { innerHTML: '' }, toast = { textContent: '', classList: { add() {}, remove() {} } };
   const count = { textContent: '0' };
   const comments = { innerHTML: '', contains: element => element === commentButton, previousElementSibling: { querySelector: () => count } };
-  const editor = { open: false, scrollTop: 142, innerHTML: '', showModal() { this.open = true; }, close() { this.open = false; }, addEventListener() {}, querySelector: selector => selector === '.comments' ? comments : null };
+  const editor = { open: false, scrollTop: 142, innerHTML: '', showModal() { this.open = true; }, close() { this.open = false; }, addEventListener() {}, querySelector: selector => selector === '.comments' ? comments : null, classList: { add() {}, remove() {} }, style: { setProperty() {}, removeProperty() {} } };
   const commentButton = { matches: () => false };
-  const draft = { value: 'draft text', selectionStart: 2, selectionEnd: 4, matches: () => true };
+  const draft = { value: 'draft text', selectionStart: 2, selectionEnd: 4, matches: () => true, focus() { document.activeElement = this; }, addEventListener() {}, removeEventListener() {} };
   const error = { textContent: '' }, commentForm = { querySelector: () => error, scrollIntoView() {} };
-  globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://example.test', supabaseAnonKey: 'public' }, addEventListener() {}, scrollTo() {} };
+  globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://example.test', supabaseAnonKey: 'public' }, addEventListener() {}, removeEventListener() {}, scrollTo() {} };
   Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
-  globalThis.document = { hidden: false, activeElement: { matches: () => false }, querySelector: selector => ({ '#app': app, '#toast': toast, '#editor': editor, '#comment-form': editor.open && editor.innerHTML.includes('id="comment-form"') ? commentForm : null })[selector] || null, querySelectorAll: () => [], addEventListener: (type, fn) => listeners.set(type, fn) };
+  globalThis.document = { hidden: false, activeElement: { matches: () => false }, querySelector: selector => ({ '#app': app, '#toast': toast, '#editor': editor, '#comment-text': draft, '#comment-form': editor.open && editor.innerHTML.includes('id="comment-form"') ? commentForm : null })[selector] || null, querySelectorAll: () => [], addEventListener: (type, fn) => listeners.set(type, fn) };
   globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
   globalThis.sessionStorage = globalThis.localStorage;
   globalThis.location = { href: 'http://localhost/', origin: 'http://localhost', pathname: '/', hash: '#calendar' };

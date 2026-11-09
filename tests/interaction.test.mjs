@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { lockPage, unlockPage, installDialogDismissal, focusReplyInput } from '../src/dialog-behavior.js';
 import { installGalleryDrag } from '../src/gallery.js';
 
-function replyFixture(withViewport = true) {
+function replyFixture(withViewport = true, layout = {}) {
   const viewport = Object.assign(new EventTarget(), { height: 800, offsetTop: 0 });
   const frames = new Map(); let frameId = 0;
   globalThis.window = Object.assign(new EventTarget(), { innerHeight: 800, ...(withViewport ? { visualViewport: viewport } : {}), requestAnimationFrame(fn) { frames.set(++frameId, fn); return frameId; }, cancelAnimationFrame(id) { frames.delete(id); } });
@@ -13,10 +13,16 @@ function replyFixture(withViewport = true) {
   const height = () => withViewport ? viewport.height : window.innerHeight;
   const editor = { open: true, clientTop: 1, get clientHeight() { return Math.min(600, height() - 34); }, get scrollTop() { return scrollTop; }, set scrollTop(value) { scrollTop = Math.max(0, value); scrolls.push(scrollTop); }, getBoundingClientRect() { const top = (withViewport ? viewport.offsetTop : 0) + (height() - this.clientHeight - 2) / 2; return { top, bottom: top + this.clientHeight + 2 }; }, classList: { add: v => classes.add(v), remove: v => classes.delete(v) }, style: { setProperty: (k, v) => styles.set(k, v), removeProperty: k => styles.delete(k) } };
   const input = Object.assign(new EventTarget(), { contentTop: 1000, height: 60, value: 'A long reply', selectionStart: 8, selectionEnd: 8, focus(options) { focuses.push(options); document.activeElement = input; }, getBoundingClientRect() { const top = editor.getBoundingClientRect().top + editor.clientTop + this.contentTop - editor.scrollTop; return { top, bottom: top + this.height, height: this.height }; } });
+  Object.assign(input, layout);
+  const at = content => editor.getBoundingClientRect().top + editor.clientTop + content - editor.scrollTop;
+  if (layout.formBottom !== undefined) input.form = { getBoundingClientRect: () => ({ bottom: at(layout.formBottom) }) };
+  if (layout.commentTop !== undefined) input.closest = selector => selector === '.comment' ? { getBoundingClientRect: () => ({ top: at(layout.commentTop) }) } : null;
   const flush = () => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(fn => fn()); };
-  const assertVisible = () => { const rect = input.getBoundingClientRect(), bounds = editor.getBoundingClientRect(); assert.ok(rect.top >= Math.max(withViewport ? viewport.offsetTop : 0, bounds.top + editor.clientTop) + 12); assert.ok(rect.bottom <= Math.min((withViewport ? viewport.offsetTop : 0) + height(), bounds.top + editor.clientTop + editor.clientHeight) - 12); };
+  const area = () => { const bounds = editor.getBoundingClientRect(), top = withViewport ? viewport.offsetTop : 0; return { top: Math.max(top, bounds.top + editor.clientTop) + 12, bottom: Math.min(top + height(), bounds.top + editor.clientTop + editor.clientHeight) - 12 }; };
+  const shows = (from, to) => at(from) >= area().top && at(to) <= area().bottom;
+  const assertVisible = () => { const rect = input.getBoundingClientRect(); assert.ok(rect.top >= area().top); assert.ok(rect.bottom <= area().bottom); };
   const dispose = focusReplyInput(editor, input);
-  return { viewport, editor, input, classes, styles, scrolls, focuses, frames, flush, assertVisible, dispose };
+  return { viewport, editor, input, classes, styles, scrolls, focuses, frames, flush, assertVisible, shows, area, at, dispose };
 }
 
 test('reply input stays visible as the mobile keyboard resizes and pans the viewport', () => {
@@ -109,6 +115,42 @@ test('a reply above the visible area is restored without moving the background p
   const savedScroll = editor.scrollTop;
   flush();
   assert.equal(editor.scrollTop, savedScroll);
+  dispose();
+});
+
+test('replying to a bottom comment keeps the comment, input and buttons above the keyboard', () => {
+  const { viewport, editor, input, scrolls, flush, shows, area, at, assertVisible, dispose } = replyFixture(true, { commentTop: 940, contentTop: 1000, height: 60, formBottom: 1100 });
+  flush();
+  assert.ok(shows(940, 1100));
+  viewport.height = 360;
+  viewport.dispatchEvent(new Event('resize'));
+  flush();
+  assert.ok(shows(940, 1100));
+  // Typing leaves a manual scroll alone while the form itself is still visible.
+  editor.scrollTop += at(940) - area().top + 10;
+  assert.ok(!shows(940, 1100) && shows(1000, 1100));
+  const count = scrolls.length;
+  input.dispatchEvent(new Event('input'));
+  flush();
+  assert.equal(scrolls.length, count);
+  input.dispatchEvent(new Event('focus'));
+  flush();
+  assert.ok(shows(940, 1100));
+  // Too short for the comment: the buttons stay visible and as much context as fits above.
+  viewport.height = 200;
+  viewport.dispatchEvent(new Event('resize'));
+  flush();
+  assert.ok(shows(1000, 1100));
+  assert.equal(at(1100), area().bottom);
+  // A form pushed below the keyboard while typing is brought back.
+  editor.scrollTop -= 30;
+  input.dispatchEvent(new Event('input'));
+  flush();
+  assert.ok(shows(1000, 1100));
+  // Too short even for the form: the input itself wins.
+  viewport.height = 120;
+  viewport.dispatchEvent(new Event('resize'));
+  flush(); assertVisible();
   dispose();
 });
 

@@ -146,7 +146,7 @@ test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정�
     await click({action:'new',kind:'diary'});assert.equal(editor.open,false);assert.match(toast.textContent,/지원하지 않는 기록/);
     assert.match(await submit('diary',{text:'새 일기',date:'2026-10-26'}),/지원하지 않는 기록/);
     await click({action:'new',kind:'post'});assert.equal(editor.open,true);
-    assert.doesNotMatch(editor.innerHTML,/일기|name="mood"/);
+    assert.match(editor.innerHTML,/<h2 id="dialog-title">일기 쓰기<\/h2>/);assert.doesNotMatch(editor.innerHTML,/name="mood"/);
     assert.equal(await submit('post',{title:'안전한 게시글',text:'<script>우리 이야기</script>',date:'2026-10-26'}),'');
     assert.match(app.innerHTML,/&lt;script&gt;우리 이야기&lt;\/script&gt;/);assert.doesNotMatch(app.innerHTML,/<script>우리 이야기/);assert.equal(editor.open,false);
     rows.set('legacy-diary',{id:'legacy-diary',kind:'diary',author_id:'demo-partner',created_at:new Date().toISOString(),data:{text:'숨겨진 예전 일기',date:'2026-10-26',files:[{id:'diary-photo',type:'image/jpeg',source:'local',name:'일기 사진'}]}});
@@ -166,7 +166,7 @@ test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정�
     rows.delete('sort-date');rows.delete('sort-upload');
     rows.set('legacy-board',{...post,id:'legacy-board',data:{...post.data,title:'Legacy shared post',space:'board'}});
     await click({action:'refresh'});assert.match(app.innerHTML,/Legacy shared post/);
-    await click({view:'memories'});assert.match(app.innerHTML,/<h1>게시판<\/h1>/);assert.doesNotMatch(app.innerHTML.match(/<main>[\s\S]*?<\/main>/)[0],/일기|보관함|memory-cover|memory-gallery|paper-drawing/);assert.match(app.innerHTML,/사진 없는 추억/);await click({action:'open-post',id:post.id});assert.match(editor.innerHTML,/둘이 나누는 이야기/);
+    await click({view:'memories'});assert.match(app.innerHTML,/<h1>일기<\/h1>/);assert.doesNotMatch(app.innerHTML.match(/<main>[\s\S]*?<\/main>/)[0],/게시판|보관함|memory-cover|memory-gallery|paper-drawing/);assert.match(app.innerHTML,/사진 없는 추억/);await click({action:'open-post',id:post.id});assert.match(editor.innerHTML,/둘이 나누는 이야기/);
     const commentError={textContent:''};const commentForm={id:'comment-form',dataset:{post:post.id},elements:{text:{value:'좋아!'}},querySelector:s=>s==='[type="submit"]'?{textContent:'댓글',isConnected:true}:commentError};
     await listeners.get('submit')({target:commentForm,preventDefault(){}});assert.equal(commentError.textContent,'');assert.match(editor.innerHTML,/좋아!/);
     const comment=[...rows.values()].find(r=>r.kind==='comment'&&r.data.text==='좋아!');editor.scrollTop=125;await click({action:'edit',id:comment.id});

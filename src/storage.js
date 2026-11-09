@@ -41,5 +41,6 @@ export const local = {
   remove: id => transaction('records', 'readwrite', s => s.delete(id)),
   file: id => transaction('files', 'readonly', s => s.get(id)),
   putFile: (id, blob) => transaction('files', 'readwrite', s => s.put({ id, blob })),
+  removeFile: id => transaction('files', 'readwrite', s => s.delete(id)),
   async clear() { await transaction('records', 'readwrite', s => s.clear()); await transaction('files', 'readwrite', s => s.clear()); }
 };

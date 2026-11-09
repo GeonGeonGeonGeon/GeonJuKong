@@ -6,7 +6,8 @@ import { google } from './google.js';
 import { native, isAuthCallback } from './platform.js';
 import { createBucketList } from './bucket-list.js';
 import { createProfiles } from './profiles.js';
-import { createMediaDraft } from './editor-media.js';
+import { createMediaDraft, selectedMediaFile } from './editor-media.js';
+import { createPostDraft, readPostDraft } from './post-drafts.js';
 import { lockPage, unlockPage, installDialogDismissal, focusReplyInput } from './dialog-behavior.js';
 import { installGalleryDrag } from './gallery.js';
 import { createDriveVideoPlayer } from './drive-video.js';
@@ -96,6 +97,74 @@ function eventTargetPicker(data) {
   return `<fieldset class="event-target-picker"><legend>누구의 일정인가요?</legend>${eventTargets().map(item => `<label class="event-target-option"><input type="radio" name="target" value="${item.value}" ${selected === item.value ? 'checked' : ''} required><span class="event-target-label event-tone-${item.tone}"><i aria-hidden="true"></i>${e(item.label)}</span></label>`).join('')}</fieldset>`;
 }
 let editorDraft = null;
+let postDraftSession = null;
+const postDraftScope = target => ({ mode: state.mode, user: state.user, target: target || '' });
+function postDraftPanel() {
+  const diary = state.view === 'memories';
+  return `<aside class="post-draft-notice" aria-label="${diary ? '일기 기기 초안' : '기기 초안'}"><p id="post-draft-status" role="status" aria-live="polite">${diary ? '일기 내용' : '작성 내용'}은 이 계정의 기기 초안으로 자동 저장돼요. 브라우저 데이터를 지우면 삭제돼요.</p><div class="post-draft-actions"><button type="button" class="secondary" data-action="draft-restore" hidden>${diary ? '일기 이어 쓰기' : '이어서 쓰기'}</button><button type="button" class="text-button danger" data-action="draft-discard">${diary ? '일기 초안 삭제' : '초안 삭제'}</button></div></aside>`;
+}
+function capturePostDraft() {
+  const session = postDraftSession;
+  if (!session || session.waiting || session.scope.user !== state.user || session.scope.mode !== state.mode) return;
+  const form = session.form;
+  const values = Object.fromEntries(new FormData(form));
+  session.dirty = true;
+  return session.store.capture({ date: values.date, title: values.title, text: values.text }, editorDraft?.entries() || [], form.dataset.version, form.uploadedFiles);
+}
+function leavePostDraft() {
+  if (!postDraftSession) return;
+  if (postDraftSession.dirty) {
+    const message = capturePostDraft();
+    if (message && /못했|저장 중/.test(message)) toast(message);
+  }
+  postDraftSession = null;
+}
+function beginPostDraft(row) {
+  const form = $('#record-form');
+  if (!form) return;
+  const scope = postDraftScope(row?.id);
+  try {
+    const session = { form, row, scope, dirty: false, waiting: false };
+    session.store = createPostDraft(scope, { onStatus: message => { if (postDraftSession === session && $('#post-draft-status')) $('#post-draft-status').textContent = message; } });
+    postDraftSession = session;
+    if (session.store.saved) {
+      session.waiting = true; form.hidden = true;
+      $('#post-draft-status').textContent = '이 기기에 저장한 일기 초안이 있어요. 이어 쓰거나 삭제할 수 있어요.';
+      $('[data-action="draft-restore"]').hidden = false;
+    }
+  } catch {
+    $('#post-draft-status').textContent = '기기 초안을 읽거나 저장할 수 없어요. 닫기 전에 내용을 복사해 주세요.';
+  }
+}
+async function restorePostDraft() {
+  const session = postDraftSession;
+  if (!session?.waiting) return;
+  const restored = await session.store.restore();
+  if (postDraftSession !== session || state.user !== session.scope.user || state.mode !== session.scope.mode) return;
+  for (const name of ['date', 'title', 'text']) session.form.elements[name].value = restored.fields[name] || '';
+  session.form.dataset.version = restored.version || '';
+  editorDraft?.dispose(); editorDraft = createMediaDraft();
+  editorDraft.restore(restored.entries);
+  session.waiting = false; session.dirty = true; session.form.hidden = false;
+  $('[data-action="draft-restore"]').hidden = true;
+  updateMediaDraft();
+  $('#post-draft-status').textContent = restored.missing.length ? `텍스트와 보관된 첨부를 복원했어요. 저장되지 않은 파일을 다시 선택해 주세요: ${restored.missing.join(', ')}` : '날짜·제목·본문과 첨부를 복원했어요. 이어서 작성해 주세요.';
+}
+async function discardPostDraft() {
+  const session = postDraftSession;
+  if (!session) return;
+  try { await session.store.discard(); }
+  finally {
+    if (!session.store.saved && postDraftSession === session) { postDraftSession = null; openEditor('post', session.row); }
+  }
+  render(); toast('기기 초안을 삭제했어요.');
+}
+function postDraftReminder() {
+  try {
+    const drafts = [{ id: '', title: '새 일기' }, ...memoriesRows().filter(canEdit).map(row => ({ id: row.id, title: postTitle(row) }))].filter(item => readPostDraft(postDraftScope(item.id)));
+    return drafts.length ? `<aside class="post-draft-notice" aria-label="저장한 기기 초안"><p>이 계정으로 이 기기에 저장한 일기 초안이 있어요.</p>${drafts.map(item => `<button type="button" class="text-button" data-action="draft-open" data-id="${e(item.id)}">${e(item.title)} 이어 쓰기</button>`).join('')}</aside>` : '';
+  } catch { return ''; }
+}
 let startupPending = true;
 async function loadFeatures() {
   const mode = state.mode, user = state.user;
@@ -119,15 +188,22 @@ function render() {
 }
 function pageTitle(eyebrow, title, description, action = '') { return `<div class="page-heading"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="subtitle">${description}</p></div>${action}</div>`; }
 function eventRows(list) { return list.map(row => `<div class="event-row event-tone-${eventTarget(row.data).tone}"><span class="event-time">${e(row.data.time || '하루 종일')}</span><span class="event-line"></span><div><strong>${e(postTitle(row))}</strong><p class="event-target-name">${e(eventTarget(row.data).label)}</p>${row.data.text ? `<p>${e(row.data.text)}</p>` : ''}</div>${row.data.automatic ? '<span class="tag">자동 기념일</span>' : `<button class="icon-button" data-action="edit-event" data-id="${e(row.id)}" aria-label="${e(postTitle(row))} 일정 보기">${icon('right')}</button>`}</div>`).join(''); }
-let homePhotoIndex = null, homePhotoDraft = [];
-const homePhotoSelections = () => Array.isArray(state.couple.homePhoto) ? state.couple.homePhoto : state.couple.homePhoto ? [state.couple.homePhoto] : [];
-function selectedHomePhotos(recentPosts = sortRecords(memoriesRows())) {
-  return homePhotoSelections().map(selection => {
+let homePhotoIndex = null, homePhotoDraft = [], homePhotoShowPosts = false;
+function disposeHomePhotoDraft() {
+  for (const item of homePhotoDraft) if (item.url) URL.revokeObjectURL(item.url);
+  homePhotoDraft = [];
+}
+const homePhotoLibrary = () => Array.isArray(state.couple.homePhoto) ? state.couple.homePhoto : state.couple.homePhoto ? [state.couple.homePhoto] : [];
+const homePhotoSelections = () => homePhotoLibrary().filter(item => item.selected !== false);
+function resolveHomePhotos(selections, recentPosts = sortRecords(memoriesRows())) {
+  return selections.map(selection => {
+    if (selection.file?.type?.startsWith('image/')) return { file: selection.file, selection };
     const row = recentPosts.find(item => item.id === selection.recordId);
     const file = row?.data.files?.find(item => item.id === selection.fileId && item.type.startsWith('image/'));
-    return file ? { row, file } : null;
+    return file ? { row, file, selection } : null;
   }).filter(Boolean);
 }
+const selectedHomePhotos = recentPosts => resolveHomePhotos(homePhotoSelections(), recentPosts);
 function home() {
   const anniversary = coupleDaySummary(state.couple, today);
   const year = Number(today.slice(0, 4));
@@ -137,13 +213,12 @@ function home() {
   if (selectedPhotos.length && homePhotoIndex === null) homePhotoIndex = Math.floor(Math.random() * selectedPhotos.length);
   if (selectedPhotos.length) homePhotoIndex %= selectedPhotos.length;
   const selected = selectedPhotos[homePhotoIndex];
-  const photoPost = selected?.row || recentPosts.find(row => (row.data.files || []).some(file => file.type.startsWith('image/')));
-  const heroPost = photoPost && { ...photoPost, data: { ...photoPost.data, files: photoPost.data.files.filter(file => file.type.startsWith('image/') && (!selected || file.id === selected.file.id)) } };
+  const heroPhoto = selected ? homePhotoPreview(selected.file, true) : '<div class="museum-photo-empty"></div>';
   const next = upcoming[0];
   const daysUntil = next ? Math.round((Date.parse(`${next.data.date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000) : 0;
   return `<div class="museum-masthead"><div><h1>GeonJuKong<span>♡</span></h1><p>오늘도, 우리라는 하루</p></div></div>
   ${state.mode === 'demo' ? demoBanner() : ''}${state.mode === 'live' && state.upcomingError ? `<div class="error-banner" role="alert">다가오는 일정 읽기 실패: ${e(state.upcomingError)} <button data-action="calendar-retry">다시 시도</button></div>` : ''}
-  <section class="museum-photo" aria-label="우리의 사진">${heroPost ? postCard(heroPost, true) : '<div class="museum-photo-empty"></div>'}<div class="home-hero-copy"><p>Together for</p><strong>${anniversary.elapsed === null ? '—' : e(anniversary.label)}</strong><span>지금처럼,<br>늘 함께</span></div><button type="button" class="home-photo-button" data-action="choose-home-photo">홈 사진 선택</button>${selectedPhotos.length > 1 ? `<div class="home-photo-navigation"><button type="button" class="memory-arrow" data-action="home-photo-prev" aria-label="이전 사진">${icon('left')}</button><span aria-live="polite">${homePhotoIndex + 1} / ${selectedPhotos.length}</span><button type="button" class="memory-arrow" data-action="home-photo-next" aria-label="다음 사진">${icon('right')}</button></div>` : ''}</section>
+  <section class="museum-photo" aria-label="우리의 사진">${heroPhoto}<div class="home-hero-copy"><p>Together for</p><strong>${anniversary.elapsed === null ? '—' : e(anniversary.label)}</strong><span>지금처럼,<br>늘 함께</span></div><button type="button" class="home-photo-button" data-action="choose-home-photo">홈 사진 선택</button>${selectedPhotos.length > 1 ? `<div class="home-photo-navigation"><button type="button" class="memory-arrow" data-action="home-photo-prev" aria-label="이전 사진">${icon('left')}</button><span aria-live="polite">${homePhotoIndex + 1} / ${selectedPhotos.length}</span><button type="button" class="memory-arrow" data-action="home-photo-next" aria-label="다음 사진">${icon('right')}</button></div>` : ''}</section>
   <section class="home-section schedule-card"><div class="section-heading"><h2>NEXT EVENT</h2><button class="text-button" data-view="calendar">더보기 ${icon('right')}</button></div>${state.mode === 'live' && !google.connected && !next ? empty('일정을 연결해 볼까요?', '설정에서 Google을 연결하면 공유 일정이 보여요.') : next ? `<div class="home-event event-tone-${eventTarget(next.data).tone}"><div class="home-event-date"><strong>${daysUntil === 0 ? 'D-DAY' : `D-${daysUntil}`}</strong><span>${formatDate(next.data.date)}</span></div><span class="home-event-icon">${icon('calendar')}</span><div class="home-event-detail"><div><strong>${e(postTitle(next))}</strong><span class="event-target-name">${e(eventTarget(next.data).label)}</span><p>${e(next.data.text || next.data.time || '함께하는 날')}</p></div>${next.data.automatic ? '' : `<button class="icon-button" data-action="edit-event" data-id="${e(next.id)}" aria-label="${e(postTitle(next))} 일정 보기">${icon('right')}</button>`}</div></div>` : empty('아직 정해진 약속이 없어요', '함께하고 싶은 하루를 남겨 보세요.', addButton('event', '약속 추가', 'secondary'))}</section>
   <section class="home-section memories-section museum-memories"><div class="section-heading"><h2>RECENT MEMORY</h2><button class="text-button" data-view="memories">모두 보기 ${icon('right')}</button></div><div class="memory-grid">${recentPosts.length ? postCard(recentPosts[0]) : empty('첫 번째 추억을 기다려요', '사진과 짧은 이야기로 시작해 보세요.', addButton('post', '추억 남기기'))}</div></section>`;
 }
@@ -165,13 +240,13 @@ function videoPreview(file) {
 }
 function postCard(row, priority = false) {
   const files = row.data.files || [];
-  const cover = files.length ? `<div class="memory-cover memory-gallery"><div class="memory-slides" aria-label="첨부 파일 미리보기" tabindex="0">${files.map((originalFile, index) => { let file = previewFile(originalFile); if (file && !cachedPhotoUrl(file) && cachedPhotoUrl(originalFile)) file = originalFile; return originalFile.type.startsWith('video/') ? `<div class="memory-slide">${videoPreview(originalFile)}</div>` : `<button class="memory-slide" data-action="open-post" data-id="${row.id}" aria-label="${e(postTitle(row))} 게시글 열기">${file.type.startsWith('image/') ? file.source === 'local' ? `<img data-file="${e(file.id)}"${cachedLocalPhoto(file.id)} alt="${e(file.name)}" loading="${priority && index === 0 ? 'eager' : 'lazy'}">` : drivePhoto(originalFile,file.name,false,priority && index === 0) : `<div class="file-cover">${icon('cloud')}<span>Drive에 보관한 순간</span><small>${e(file.name)}</small></div>`}</button>`; }).join('')}</div>${files.length > 1 ? `<button type="button" class="memory-arrow memory-prev" data-action="attachment-prev" aria-label="이전 사진 또는 동영상" disabled>${icon('left')}</button><button type="button" class="memory-arrow memory-next" data-action="attachment-next" aria-label="다음 사진 또는 동영상">${icon('right')}</button><span class="file-count attachment-position" aria-live="polite">1 / ${files.length}</span>` : ''}</div>` : '';
+  const cover = files.length ? `<div class="memory-cover memory-gallery"><div class="memory-slides" aria-label="첨부 파일 미리보기" tabindex="0">${files.map((originalFile, index) => { let file = previewFile(originalFile); if (file && !cachedPhotoUrl(file) && cachedPhotoUrl(originalFile)) file = originalFile; return originalFile.type.startsWith('video/') ? `<div class="memory-slide">${videoPreview(originalFile)}</div>` : `<button class="memory-slide" data-action="open-post" data-id="${row.id}" aria-label="${e(postTitle(row))} ${state.view === 'memories' ? '일기' : '게시글'} 열기">${file.type.startsWith('image/') ? file.source === 'local' ? `<img data-file="${e(file.id)}"${cachedLocalPhoto(file.id)} alt="${e(file.name)}" loading="${priority && index === 0 ? 'eager' : 'lazy'}">` : drivePhoto(originalFile,file.name,false,priority && index === 0) : `<div class="file-cover">${icon('cloud')}<span>Drive에 보관한 순간</span><small>${e(file.name)}</small></div>`}</button>`; }).join('')}</div>${files.length > 1 ? `<button type="button" class="memory-arrow memory-prev" data-action="attachment-prev" aria-label="이전 사진 또는 동영상" disabled>${icon('left')}</button><button type="button" class="memory-arrow memory-next" data-action="attachment-next" aria-label="다음 사진 또는 동영상">${icon('right')}</button><span class="file-count attachment-position" aria-live="polite">1 / ${files.length}</span>` : ''}</div>` : '';
   const commentCount = records('comment').filter(c => c.data.postId === row.id).length;
   return `<article class="memory-card${files.length ? '' : ' memory-text-only'}">${cover}<div class="memory-info"><p class="memory-date">${formatDate(row.data.date, { year:'numeric',month:'2-digit',day:'2-digit' })}</p><button class="title-button" data-action="open-post" data-id="${row.id}"><h3>${e(postTitle(row))}</h3></button><button type="button" class="memory-excerpt" data-action="open-post" data-id="${row.id}" aria-haspopup="dialog">${e(row.data.text || '함께한 순간을 간직해요.')}</button><div class="memory-meta"><span>${avatar(row.author_id, true)}${e(nameOf(row.author_id))}</span><button type="button" class="memory-comments" data-action="open-comments" data-id="${row.id}" aria-label="${e(postTitle(row))} 댓글 ${commentCount}개 보기" aria-haspopup="dialog">${icon('chat')}${commentCount}</button></div></div></article>`;
 }
 function memories() {
-  const list = sortRecords(memoriesRows(), 'date').filter(r => `${r.data.title} ${r.data.text}`.toLowerCase().includes(state.filter.toLowerCase()));
-  return `${pageTitle('COLLECTING LITTLE MOMENTS', '게시판', '우리의 이야기를 날짜별로 함께 보관해요.', addButton('post', '게시글 쓰기'))}<div class="list-toolbar"><span>소중한 순간 <strong>${memoriesRows().length}</strong></span><form id="search-form" class="search">${icon('search')}<input name="search" aria-label="추억 검색" placeholder="어떤 순간을 찾고 있나요?" value="${e(state.filter)}"><button type="submit" class="text-button">검색</button></form></div><div class="memory-grid all-memories">${list.length ? list.map(postCard).join('') : empty(state.filter ? '찾는 추억이 없어요' : '첫 추억을 남겨 보세요', state.filter ? '다른 단어로 찾아보세요.' : '사진, 동영상과 함께 우리의 이야기를 보관해요.', state.filter ? '' : addButton('post', '추억 남기기'))}</div>`;
+  const list = sortRecords(memoriesRows(), 'date').filter(row => `${row.data.title} ${row.data.text}`.toLowerCase().includes(state.filter.toLowerCase()));
+  return `${pageTitle('COLLECTING LITTLE MOMENTS', '일기', '우리의 일기를 날짜별로 함께 보관해요.', addButton('post', '일기 쓰기'))}${postDraftReminder()}<div class="list-toolbar"><span>일기 <strong>${memoriesRows().length}</strong></span><form id="search-form" class="search">${icon('search')}<input name="search" aria-label="일기 검색" placeholder="어떤 일기를 찾고 있나요?" value="${e(state.filter)}"><button type="submit" class="text-button">검색</button></form></div><div class="memory-grid all-memories">${list.length ? list.map(row => postCard(row)).join('') : empty(state.filter ? '찾는 일기가 없어요' : '첫 일기를 써 보세요', state.filter ? '다른 단어로 찾아보세요.' : '사진, 동영상과 함께 우리의 일기를 보관해요.', state.filter ? '' : addButton('post', '일기 쓰기'))}</div>`;
 }
 function coupleDateFields(name, label, value = '') {
   return `<label>${label}<input type="date" name="${name}" value="${e(value)}" required></label>`;
@@ -229,7 +304,7 @@ async function localImageUrl(id) {
 }
 async function preloadHomePhotos() {
   const recentPosts = sortRecords(memoriesRows()), selected = selectedHomePhotos(recentPosts);
-  const heroFiles = selected.length ? selected.map(item => item.file) : recentPosts.find(row => row.data.files?.some(file => file.type.startsWith('image/')))?.data.files || [];
+  const heroFiles = selected.map(item => item.file);
   const files = [...heroFiles, ...(recentPosts[0]?.data.files || [])].filter(file => file?.type.startsWith('image/'));
   const unique = new Map(files.map(file => [`${file.source}:${previewFile(file).id}`, file]));
   const pending = new Map();
@@ -322,27 +397,113 @@ async function hydrateMedia() {
     else loadDriveImage(img);
   }
 }
-function closeDialog() { replyFocusCleanup?.(); replyFocusCleanup = null; editorDraft?.dispose(); editorDraft = null; $('#editor').querySelectorAll?.('video').forEach(video => video.pause()); state.activePost = null; state.replyTo = ''; postCommentsOnly = false; $('#editor').close(); unlockPage(); $('#editor').innerHTML = ''; hydrateMedia(); }
-function dialog(title, content) { replyFocusCleanup?.(); replyFocusCleanup = null; editorDraft?.dispose(); editorDraft = null; const el = $('#editor'); el.querySelectorAll?.('video').forEach(video => video.pause()); el.innerHTML = `<div class="modal-heading"><h2 id="dialog-title">${title}</h2><button class="icon-button" data-action="close" aria-label="닫기">${icon('close')}</button></div>${content}`; if (!el.open) { lockPage(); el.showModal(); } }
+function closeDialog() { const hadPostDraft = Boolean(postDraftSession); leavePostDraft(); replyFocusCleanup?.(); replyFocusCleanup = null; editorDraft?.dispose(); editorDraft = null; disposeHomePhotoDraft(); $('#editor').querySelectorAll?.('video').forEach(video => video.pause()); state.activePost = null; state.replyTo = ''; postCommentsOnly = false; $('#editor').close(); unlockPage(); $('#editor').innerHTML = ''; if (hadPostDraft) render(); hydrateMedia(); }
+function dialog(title, content) { leavePostDraft(); replyFocusCleanup?.(); replyFocusCleanup = null; editorDraft?.dispose(); editorDraft = null; const el = $('#editor'); el.querySelectorAll?.('video').forEach(video => video.pause()); el.innerHTML = `<div class="modal-heading"><h2 id="dialog-title">${title}</h2><button class="icon-button" data-action="close" aria-label="닫기">${icon('close')}</button></div>${content}`; if (!el.open) { lockPage(); el.showModal(); } }
 function chooseHomePhoto() {
-  homePhotoDraft = homePhotoSelections().map(item => ({ ...item }));
-  const photos = sortRecords(memoriesRows()).flatMap(row => (row.data.files || []).filter(file => file.type.startsWith('image/')).map(file => ({row, file})));
-  dialog('홈 사진 선택', `<p class="setting-hint">여러 사진을 선택할 수 있어요. 두 사람에게 같은 사진들이 표시돼요.</p><div class="home-photo-options">${photos.map(({row, file}) => `<button type="button" class="home-photo-option" data-action="toggle-home-photo" data-id="${e(row.id)}" data-file-id="${e(file.id)}" aria-pressed="${homePhotoDraft.some(item => item.recordId === row.id && item.fileId === file.id)}" aria-label="${e(postTitle(row))}: ${e(file.name)} 선택">${file.source === 'local' ? `<img data-file="${e(file.id)}" alt="">` : drivePhoto(file, file.name)}<span>${e(postTitle(row))} · ${e(file.name)}</span></button>`).join('') || '<p>선택할 사진이 없어요. 게시글에 사진을 올려 주세요.</p>'}</div><div class="modal-actions"><button type="button" class="secondary" data-action="auto-home-photo">최신 사진 자동 선택</button><button type="button" class="primary" data-action="set-home-photo">선택 저장</button></div>`);
+  disposeHomePhotoDraft();
+  homePhotoShowPosts = false;
+  homePhotoDraft = resolveHomePhotos(homePhotoLibrary()).map(({ file, selection }) => ({ key: crypto.randomUUID(), metadata: file, reference: selection.recordId && selection.fileId ? { recordId: selection.recordId, fileId: selection.fileId } : undefined, used: true, selected: selection.selected !== false }));
+  homePhotoDraft.sort((a, b) => Number(b.selected) - Number(a.selected));
+  const included = new Set(homePhotoDraft.map(item => JSON.stringify([item.metadata.source, item.metadata.id])));
+  for (const row of sortRecords(memoriesRows())) {
+    for (const file of row.data.files || []) {
+      const key = JSON.stringify([file.source, file.id]);
+      if (!file.type.startsWith('image/')) continue;
+      const reference = { recordId: row.id, fileId: file.id };
+      if (included.has(key)) {
+        const item = homePhotoDraft.find(item => item.metadata.source === file.source && item.metadata.id === file.id);
+        item.reference ||= reference;
+        continue;
+      }
+      included.add(key);
+      homePhotoDraft.push({ key: crypto.randomUUID(), metadata: file, reference, selected: false });
+    }
+  }
+  renderHomePhotoPicker();
+}
+function homePhotoPreview(original, priority = false) {
+  let file = previewFile(original);
+  if (!cachedPhotoUrl(file) && cachedPhotoUrl(original)) file = original;
+  return file.source === 'local' ? `<img data-file="${e(file.id)}"${cachedLocalPhoto(file.id)} alt="${e(original.name)}">` : drivePhoto(original, original.name, false, priority);
+}
+function renderHomePhotoPicker(focusKey) {
+  const photos = homePhotoDraft.filter(item => homePhotoShowPosts || item.used || item.added || item.file);
+  const listScroll = $('.home-photo-options')?.scrollTop || 0, dialogScroll = $('#editor').scrollTop || 0;
+  dialog('홈 사진 선택', `<p class="setting-hint">홈에 사용했던 사진을 모아뒀어요. 선택을 해제해도 보관함에 남아요. 선택한 사진은 이 창을 열 때만 맨 위에 정렬돼요.</p><label class="secondary home-photo-add">갤러리에서 추가<input id="home-photo-files" type="file" accept="image/*" multiple></label><button type="button" class="secondary" data-action="show-home-post-photos" aria-pressed="${homePhotoShowPosts}">${homePhotoShowPosts ? '홈 사진 보관함만 보기' : '게시글 사진도 보기'}</button><p role="status">선택한 사진 ${homePhotoDraft.filter(item => item.selected).length}장</p><div class="home-photo-options">${photos.map(item => {
+    const file = item.file || item.metadata;
+    return `<button type="button" class="home-photo-option" data-action="toggle-home-photo" data-key="${e(item.key)}" aria-pressed="${item.selected}" aria-label="${e(file.name)} ${item.selected ? '선택 해제' : '선택'}">${item.url ? `<img src="${e(item.url)}" alt="">` : homePhotoPreview(file)}<span>${e(file.name)}</span><span>${item.selected ? '✓ 선택됨 · 선택 해제' : '선택하기'}</span></button>`;
+  }).join('') || '<p>아직 홈에 사용한 사진이 없어요. 갤러리에서 추가하거나 게시글 사진을 골라 주세요.</p>'}</div><p class="form-error" role="alert"></p><div class="modal-actions"><button type="button" class="secondary" data-action="clear-home-photos">모두 선택 해제</button><button type="button" class="primary" data-action="set-home-photo">선택 저장</button></div>`);
+  const list = $('.home-photo-options'); if (list) list.scrollTop = listScroll;
+  $('#editor').scrollTop = dialogScroll;
+  if (focusKey) $(`[data-key="${focusKey}"]`)?.focus?.({ preventScroll: true });
   hydrateMedia();
+}
+function addHomePhotos(files) {
+  const selected = Array.from(files, selectedMediaFile);
+  if (selected.some(file => !file.type.startsWith('image/'))) throw new Error('홈 사진에는 사진만 추가할 수 있어요.');
+  for (const file of selected) {
+    const existing = homePhotoDraft.find(item => item.file && item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified && item.file.type === file.type);
+    if (existing) { existing.selected = true; continue; }
+    homePhotoDraft.push({ key: crypto.randomUUID(), file, url: URL.createObjectURL(file), selected: true });
+  }
+  renderHomePhotoPicker();
+}
+async function saveHomePhotos(button) {
+  const selected = homePhotoDraft.filter(item => item.selected);
+  state.busy = true; button.disabled = true;
+  const original = button.textContent;
+  try {
+    for (const [index, item] of selected.entries()) {
+      if (!item.metadata) {
+        const file = item.file;
+        const progress = percent => { button.textContent = `${index + 1}/${selected.length} · ${percent}%`; };
+        if (state.mode === 'demo') {
+          const id = crypto.randomUUID(); await local.putFile(id, file);
+          item.metadata = { id, name: file.name, type: file.type, size: file.size, source: 'local' };
+        } else item.metadata = await google.upload(file, progress);
+      }
+      if (item.file && !item.thumbnailAttempted) {
+        item.thumbnailAttempted = true;
+        const thumbnail = await createThumbnail(item.file);
+        if (thumbnail) {
+          try {
+            if (state.mode === 'demo') {
+              const id = crypto.randomUUID(); await local.putFile(id, thumbnail);
+              item.metadata.thumbnail = { id, name: thumbnail.name, type: thumbnail.type, size: thumbnail.size, source: 'local' };
+            } else item.metadata.thumbnail = await google.upload(thumbnail, () => {});
+          } catch { /* The original remains available when a preview upload fails. */ }
+        }
+      }
+    }
+    // Keep previously used photos even when they are no longer selected for the home screen.
+    // Older servers also require the original post and file IDs for post photos.
+    const photos = homePhotoDraft.filter(item => item.used || item.selected).map(item => ({ ...item.reference, file: item.metadata, selected: item.selected }));
+    if (state.mode === 'demo') {
+      const couple = { ...state.couple, homePhoto: photos };
+      localStorage.setItem('geonjukong-demo-couple', JSON.stringify(couple)); state.couple = couple;
+    } else state.couple = await repository.updateHomePhoto(photos);
+    homePhotoIndex = null; closeDialog(); render(); toast('홈 사진을 저장했어요.');
+  } catch (error) {
+    const box = $('#editor .form-error');
+    if (box) box.textContent = error.message;
+    throw error;
+  } finally { state.busy = false; button.disabled = false; button.textContent = original; }
 }
 function updateMediaDraft() {
   const container = $('#media-draft');
   if (container && editorDraft) { container.innerHTML = editorDraft.render(); hydrateMedia(); }
+  if (postDraftSession && !postDraftSession.waiting) capturePostDraft();
 }
 function openEditor(kind, row) {
   if (!['event','post','comment'].includes(kind)) throw new Error('지원하지 않는 기록입니다.');
   if (kind === 'event' && state.mode === 'live' && !google.connected) { toast('설정에서 Google을 먼저 연결해 주세요.'); state.view = 'settings'; render(); return; }
   if (kind === 'comment') state.postScroll = $('#editor').scrollTop || 0;
-  const data = row?.data || {}; const title = {event:'우리의 약속',post:'추억 남기기',comment:'댓글 수정'}[kind];
+  const diary = kind === 'post' && state.view === 'memories';
+  const data = row?.data || {}; const title = {event:'우리의 약속',post:diary ? (row ? '일기 수정' : '일기 쓰기') : '추억 남기기',comment:'댓글 수정'}[kind];
   let end = data.end?.dateTime ? new Date(data.end.dateTime) : null;
   let endDate = data.end?.date ? new Date(`${data.end.date}T12:00:00`) : null; if (endDate) endDate.setDate(endDate.getDate() - 1);
-  dialog(title, `<form id="record-form" data-kind="${kind}" data-id="${row?.id || ''}" data-version="${e(row?.updated_at || row?.created_at || '')}">${kind !== 'comment' ? `<label>날짜<input type="date" name="date" value="${e(data.date || (state.view === 'calendar' ? state.day : today))}" required></label>` : `<input type="hidden" name="postId" value="${e(data.postId)}">`}${['event','post'].includes(kind) ? `<label>제목<input name="title" value="${e(data.title || '')}" maxlength="120" placeholder="어떤 순간인가요?" required></label>` : ''}${kind === 'event' ? `${eventTargetPicker(data)}<div class="form-row"><label>시작 시간 <span class="optional">비우면 하루 종일</span><input name="time" type="time" value="${e(data.time || '')}"></label><label>종료 날짜<input name="endDate" type="date" value="${end ? dateKey(end) : endDate ? dateKey(endDate) : data.date || (state.view === 'calendar' ? state.day : today)}"></label><label>종료 시간<input name="endTime" type="time" value="${end ? `${String(end.getHours()).padStart(2,'0')}:${String(end.getMinutes()).padStart(2,'0')}` : ''}"></label></div>` : ''}<label>${kind === 'event' ? '메모' : '이야기'}<textarea name="text" rows="${kind === 'event' ? 3 : 6}" maxlength="10000" placeholder="오늘을 기억할 작은 이야기…" ${kind === 'comment' ? 'required' : ''}>${e(data.text || '')}</textarea></label>${kind === 'post' ? `<label class="file-input">${icon('photo')}사진·동영상 원본 추가<input type="file" name="files" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/avif,video/mp4,video/quicktime,video/webm,video/3gpp" multiple></label><div id="media-draft"></div><p id="file-summary" class="setting-hint">${data.files?.length ? `기존 파일 ${data.files.length}개 · 아래에서 순서와 첨부를 변경할 수 있어요. ` : ''}${state.mode === 'demo' ? '원본은 이 브라우저에 저장돼요. 브라우저 데이터를 지우면 삭제돼요.' : '원본을 공유 Drive 폴더에 보관해요. 전송 중 이 화면을 열어 두세요.'}</p>` : ''}<p id="form-error" class="form-error" role="alert"></p><div class="modal-actions">${kind === 'event' && row ? `<button class="text-button danger" type="button" data-action="delete-event" data-id="${row.id}">일정 삭제</button>` : ''}<button type="button" class="secondary" data-action="close">취소</button><button type="submit" class="primary">${row ? '수정 저장' : '기록하기'}</button></div></form>`);
-  if (kind === 'post') { editorDraft = createMediaDraft(data.files || []); updateMediaDraft(); }
+  dialog(title, `${kind === 'post' ? postDraftPanel() : ''}<form id="record-form" data-kind="${kind}" data-id="${row?.id || ''}" data-version="${e(row?.updated_at || row?.created_at || '')}">${kind !== 'comment' ? `<label>날짜<input type="date" name="date" value="${e(data.date || (state.view === 'calendar' ? state.day : today))}" required></label>` : `<input type="hidden" name="postId" value="${e(data.postId)}">`}${['event','post'].includes(kind) ? `<label>${diary ? '일기 제목' : '제목'}<input name="title" value="${e(data.title || '')}" maxlength="120" placeholder="${diary ? '어떤 하루였나요?' : '어떤 순간인가요?'}" required></label>` : ''}${kind === 'event' ? `${eventTargetPicker(data)}<div class="form-row"><label>시작 시간 <span class="optional">비우면 하루 종일</span><input name="time" type="time" value="${e(data.time || '')}"></label><label>종료 날짜<input name="endDate" type="date" value="${end ? dateKey(end) : endDate ? dateKey(endDate) : data.date || (state.view === 'calendar' ? state.day : today)}"></label><label>종료 시간<input name="endTime" type="time" value="${end ? `${String(end.getHours()).padStart(2,'0')}:${String(end.getMinutes()).padStart(2,'0')}` : ''}"></label></div>` : ''}<label>${kind === 'event' ? '메모' : diary ? '일기 내용' : '이야기'}<textarea name="text" rows="${kind === 'event' ? 3 : 6}" maxlength="10000" placeholder="${diary ? '오늘의 일기를 남겨 보세요…' : '오늘을 기억할 작은 이야기…'}" ${kind === 'comment' ? 'required' : ''}>${e(data.text || '')}</textarea></label>${kind === 'post' ? `<label class="file-input">${icon('photo')}사진·동영상 원본 추가<input type="file" name="files" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/avif,video/mp4,video/quicktime,video/webm,video/3gpp" multiple></label><div id="media-draft"></div><p id="file-summary" class="setting-hint">${data.files?.length ? `기존 파일 ${data.files.length}개 · 아래에서 순서와 첨부를 변경할 수 있어요. ` : ''}${state.mode === 'demo' ? '원본은 이 브라우저에 저장돼요. 브라우저 데이터를 지우면 삭제돼요.' : '원본을 공유 Drive 폴더에 보관해요. 전송 중 이 화면을 열어 두세요.'}</p>` : ''}<p id="form-error" class="form-error" role="alert"></p><div class="modal-actions">${kind === 'event' && row ? `<button class="text-button danger" type="button" data-action="delete-event" data-id="${row.id}">일정 삭제</button>` : ''}<button type="button" class="secondary" data-action="close">취소</button><button type="submit" class="primary">${diary ? (row ? '일기 수정 저장' : '일기 저장') : row ? '수정 저장' : '기록하기'}</button></div></form>`);
+  if (kind === 'post') { editorDraft = createMediaDraft(data.files || []); updateMediaDraft(); beginPostDraft(row); }
 }
 function openPost(row, scroll = 0, commentsOnly = postCommentsOnly) {
   if (!row || row.kind !== 'post') return; state.activePost = row.id;
@@ -353,7 +514,7 @@ function openPost(row, scroll = 0, commentsOnly = postCommentsOnly) {
     $('#editor').scrollTop = scroll; hydrateMedia(); return;
   }
 
-  dialog(e(postTitle(row)), `<article class="post-detail"><div class="byline">${avatar(row.author_id,true)}<span>${e(nameOf(row.author_id))} · ${formatDate(row.data.date)}</span></div><p class="record-times">작성 ${e(new Date(row.created_at).toLocaleString('ko-KR'))}${row.updated_at && row.updated_at !== row.created_at ? ` · 수정 ${e(new Date(row.updated_at).toLocaleString('ko-KR'))}` : ''}</p><p class="post-text">${e(row.data.text || '')}</p>${row.data.files?.length ? `<div class="attachment-gallery"><div class="attachments" aria-label="첨부 파일" tabindex="0">${(row.data.files || []).map((file, index) => `<div class="attachment" role="group" aria-label="${index + 1} / ${row.data.files.length}">${file.type.startsWith('video/') ? videoPreview(file) : file.source === 'local' ? `<img data-file="${e(file.id)}" alt="${e(file.name)}">` : drivePhoto(file,file.name,true)}<button class="secondary" data-action="open-file" data-id="${e(file.id)}" data-source="${file.source}">${icon('download')}원본 열기</button></div>`).join('')}</div>${row.data.files?.length > 1 ? `<div class="attachment-navigation"><button type="button" class="icon-button" data-action="attachment-prev" aria-label="이전 사진 또는 동영상" disabled>${icon('left')}</button><span class="attachment-position" aria-live="polite">1 / ${row.data.files.length}</span><button type="button" class="icon-button" data-action="attachment-next" aria-label="다음 사진 또는 동영상">${icon('right')}</button></div>` : ''}</div>` : ''}${canEdit(row) ? `<div class="post-tools"><button class="text-button" data-action="edit" data-id="${row.id}">게시글 수정</button>${row.author_id === state.user ? `<button class="text-button danger" data-action="delete" data-id="${row.id}">삭제</button>` : ''}</div>` : ''}<div class="divider"></div>${commentSection(row)}</article>`); $('#editor').scrollTop = scroll; hydrateMedia();
+  dialog(e(postTitle(row)), `<article class="post-detail"><div class="byline">${avatar(row.author_id,true)}<span>${e(nameOf(row.author_id))} · ${formatDate(row.data.date)}</span></div><p class="record-times">작성 ${e(new Date(row.created_at).toLocaleString('ko-KR'))}${row.updated_at && row.updated_at !== row.created_at ? ` · 수정 ${e(new Date(row.updated_at).toLocaleString('ko-KR'))}` : ''}</p><p class="post-text">${e(row.data.text || '')}</p>${row.data.files?.length ? `<div class="attachment-gallery"><div class="attachments" aria-label="첨부 파일" tabindex="0">${(row.data.files || []).map((file, index) => `<div class="attachment" role="group" aria-label="${index + 1} / ${row.data.files.length}">${file.type.startsWith('video/') ? videoPreview(file) : file.source === 'local' ? `<img data-file="${e(file.id)}" alt="${e(file.name)}">` : drivePhoto(file,file.name,true)}<button class="secondary" data-action="open-file" data-id="${e(file.id)}" data-source="${file.source}">${icon('download')}원본 열기</button></div>`).join('')}</div>${row.data.files?.length > 1 ? `<div class="attachment-navigation"><button type="button" class="icon-button" data-action="attachment-prev" aria-label="이전 사진 또는 동영상" disabled>${icon('left')}</button><span class="attachment-position" aria-live="polite">1 / ${row.data.files.length}</span><button type="button" class="icon-button" data-action="attachment-next" aria-label="다음 사진 또는 동영상">${icon('right')}</button></div>` : ''}</div>` : ''}${canEdit(row) ? `<div class="post-tools"><button class="text-button" data-action="edit" data-id="${row.id}">${state.view === 'memories' ? '일기 수정' : '게시글 수정'}</button>${row.author_id === state.user ? `<button class="text-button danger" data-action="delete" data-id="${row.id}">${state.view === 'memories' ? '일기 삭제' : '삭제'}</button>` : ''}</div>` : ''}<div class="divider"></div>${commentSection(row)}</article>`); $('#editor').scrollTop = scroll; hydrateMedia();
 }
 function commentSection(row) {
   return `<h3>둘이 나누는 이야기 <span class="muted">${records('comment').filter(c => c.data.postId === row.id).length}</span></h3><div class="comments">${commentList(row)}</div>${state.replyTo ? '' : commentForm(row)}`;
@@ -409,7 +570,7 @@ async function syncUpcoming(shouldApply = () => true) {
   }
 }
 async function load(refreshGoogle = false, preloadPhotos = false) {
-  if (state.mode === 'demo') { state.records = await local.list(); try { state.notificationReads=JSON.parse(localStorage.getItem('geonjukong-demo-notification-reads')||'[]'); state.couple=JSON.parse(localStorage.getItem('geonjukong-demo-couple')||'{}'); } catch { state.notificationReads=[]; state.couple={}; } }
+  if (state.mode === 'demo') { const user = state.user, rows = await local.list(); if (state.mode !== 'demo' || state.user !== user) return; state.records = rows; try { state.notificationReads=JSON.parse(localStorage.getItem('geonjukong-demo-notification-reads')||'[]'); state.couple=JSON.parse(localStorage.getItem('geonjukong-demo-couple')||'{}'); } catch { state.notificationReads=[]; state.couple={}; } }
   else {
     const user = state.user;
     const current = () => state.mode === 'live' && state.user === user && auth.user?.id === user;
@@ -448,6 +609,9 @@ document.addEventListener('click', async event => {
     if (button.dataset.view) { if (button.tagName === 'A') event.preventDefault(); await navigate(button.dataset.view); return; }
     const action = button.dataset.action; const row = state.records.find(r => r.id === button.dataset.id);
     if (state.busy) { toast('저장이 끝날 때까지 기다려 주세요.'); return; }
+    if (action === 'draft-open') { if (!button.dataset.id || row?.kind === 'post' && canEdit(row)) openEditor('post', row); return; }
+    if (action === 'draft-restore') { await restorePostDraft(); return; }
+    if (action === 'draft-discard') { await discardPostDraft(); return; }
     if (await profiles.action(action, button) || await bucket.action(action, button)) return;
     if (action?.startsWith('media-') && editorDraft) {
       const index = Number(button.dataset.index);
@@ -457,26 +621,20 @@ document.addEventListener('click', async event => {
     }
     if (action === 'video-load') { await loadDriveVideo(button.parentElement.querySelector('video'), true); return; }
     if (action === 'choose-home-photo') chooseHomePhoto();
+    if (action === 'show-home-post-photos') { homePhotoShowPosts = !homePhotoShowPosts; renderHomePhotoPicker(); }
     if (action === 'toggle-home-photo') {
-      const fileId = button.dataset.fileId;
-      if (!row?.data.files?.some(file => file.id === fileId && file.type.startsWith('image/'))) throw new Error('선택한 사진을 찾을 수 없어요.');
-      const index = homePhotoDraft.findIndex(item => item.recordId === row.id && item.fileId === fileId);
-      if (index < 0) homePhotoDraft.push({ recordId: row.id, fileId }); else homePhotoDraft.splice(index, 1);
-      button.setAttribute('aria-pressed', String(index < 0));
+      const item = homePhotoDraft.find(item => item.key === button.dataset.key);
+      if (!item) throw new Error('선택한 사진을 찾을 수 없어요.');
+      item.selected = !item.selected;
+      if (item.selected) item.added = true;
+      renderHomePhotoPicker(item.key);
     }
+    if (action === 'clear-home-photos') { homePhotoDraft.forEach(item => { item.selected = false; }); renderHomePhotoPicker(); }
     if (action === 'home-photo-prev' || action === 'home-photo-next') {
-      const count = homePhotoSelections().filter(item => state.records.some(record => record.id === item.recordId && record.data.files?.some(file => file.id === item.fileId && file.type.startsWith('image/')))).length;
+      const count = selectedHomePhotos().length;
       if (count) { homePhotoIndex = ((homePhotoIndex || 0) + (action === 'home-photo-next' ? 1 : -1) + count) % count; render(); }
     }
-    if (action === 'set-home-photo' || action === 'auto-home-photo') {
-      const selection = action === 'auto-home-photo' || !homePhotoDraft.length ? null : homePhotoDraft;
-      button.disabled = true;
-      try {
-        if (state.mode === 'demo') { state.couple = { ...state.couple, homePhoto: selection }; localStorage.setItem('geonjukong-demo-couple', JSON.stringify(state.couple)); }
-        else state.couple = await repository.updateHomePhoto(selection);
-        homePhotoIndex = null; closeDialog(); render(); toast(selection ? '홈 사진을 저장했어요.' : '최신 사진을 자동으로 표시해요.');
-      } finally { button.disabled = false; }
-    }
+    if (action === 'set-home-photo') await saveHomePhotos(button);
     if (action === 'new') openEditor(button.dataset.kind);
     if (action === 'close' && $('#record-form')?.dataset.kind === 'comment' && state.activePost) { openPost(state.records.find(r=>r.id===state.activePost),state.postScroll); return; }
     if (action === 'close') { if (state.busy) throw new Error('저장이 끝날 때까지 기다려 주세요.'); closeDialog(); }
@@ -538,7 +696,7 @@ document.addEventListener('click', async event => {
     }
     if (action === 'open-post' || action === 'open-comments') { if (row) { state.replyTo=''; openPost(row,0,action === 'open-comments'); } }
     if (action === 'delete' || action === 'delete-comment') {
-      if (!row || !confirm(row.kind === 'post' ? '게시글과 댓글을 삭제할까요? 사진·영상 원본은 유지돼요.' : '이 기록을 삭제할까요?')) return;
+      if (!row || !confirm(row.kind === 'post' ? `${state.view === 'memories' ? '일기와' : '게시글과'} 댓글을 삭제할까요? 사진·영상 원본은 유지돼요.` : '이 기록을 삭제할까요?')) return;
       const scroll = $('#editor').scrollTop || 0; await repository.remove(state.mode,state.user,row); await load(); if(action !== 'delete-comment')closeDialog(); render();
       if (action === 'delete-comment') { const post = state.records.find(r => r.id === button.dataset.post); if (post) openPost(post,scroll); } toast('기록을 삭제했어요.');
     }
@@ -612,13 +770,23 @@ document.addEventListener('scroll', event => {
 }, true);
 $('#editor').addEventListener('cancel', event => { if(state.busy)event.preventDefault(); });
 document.addEventListener('change', event => {
-  if (event.target.id === 'demo-person' && state.mode === 'demo') { state.user=event.target.value; localStorage.setItem('geonjukong-demo-person',state.user); render(); }
+  if (event.target.id === 'home-photo-files' && !state.busy) {
+    try { addHomePhotos(event.target.files); }
+    catch (error) { report(error); }
+    finally { event.target.value = ''; }
+    return;
+  }
+  if (event.target.id === 'demo-person' && state.mode === 'demo') { if (state.busy) { event.target.value = state.user; return; } if ($('#editor').open) closeDialog(); state.user=event.target.value; localStorage.setItem('geonjukong-demo-person',state.user); render(); }
   if (event.target.id === 'profile-photo') { profiles.change(event); return; }
   if (event.target.name === 'files' && editorDraft && !state.busy) {
     try { editorDraft.addFiles(event.target.files); event.target.value = ''; updateMediaDraft(); }
     catch (error) { report(error); }
   }
 });
+document.addEventListener('input', event => { if (postDraftSession && event.target.form === postDraftSession.form && ['date', 'title', 'text'].includes(event.target.name)) capturePostDraft(); });
+window.addEventListener('pagehide', () => { if (postDraftSession?.dirty) capturePostDraft(); });
+window.addEventListener('beforeunload', () => { if (postDraftSession?.dirty) capturePostDraft(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && postDraftSession?.dirty) capturePostDraft(); });
 document.addEventListener('submit', async event => {
   const form=event.target; if(!['record-form','comment-form','search-form','couple-form','couple-setup-form','bucket-form','profile-form'].includes(form.id))return;
   event.preventDefault(); if(state.busy)return;
@@ -644,6 +812,14 @@ document.addEventListener('submit', async event => {
       render();toast(form.id === 'couple-setup-form' ? '시작일을 저장했어요. 설정에서 각자 Google 생일을 가져와 주세요.' : '연애 시작일을 저장했어요.');
     }
     if(form.id==='record-form') {
+      const draftSession = postDraftSession?.form === form ? postDraftSession : null;
+      const mode = state.mode, user = state.user;
+      const current = () => state.mode === mode && state.user === user && (mode !== 'live' || auth.user?.id === user);
+      const checkPostAccount = () => { if (form.dataset.kind === 'post' && !current()) throw new Error('계정이 바뀌어 저장을 중단했어요. 이전 계정에서 기기 초안을 이어 써 주세요.'); };
+      if (postDraftSession?.form === form) {
+        if (postDraftSession.waiting || postDraftSession.scope.user !== state.user || postDraftSession.scope.mode !== state.mode) throw new Error('초안을 이어 쓰거나 삭제한 뒤 저장해 주세요.');
+        capturePostDraft(); form.inert = true;
+      }
       const kind=form.dataset.kind; const data=Object.fromEntries(new FormData(form)); delete data.files; validateRecord(kind,data);
       let noticeQueueError = '';
       const old=state.records.find(r=>r.id===form.dataset.id); if(old) Object.assign(data,{...old.data,...data});
@@ -654,6 +830,7 @@ document.addEventListener('submit', async event => {
         // 성공한 파일을 폼에 유지해 게시글 저장 재시도에서 중복 업로드하지 않습니다.
         form.uploadedFiles ||= new Map();
         for(let i=0;i<entries.length;i++) {
+          checkPostAccount();
           const entry=entries[i];
           if(entry.metadata) { data.files.push(entry.metadata); continue; }
           const file=entry.file; const key=entry.key; let metadata=form.uploadedFiles.get(key);
@@ -661,16 +838,19 @@ document.addEventListener('submit', async event => {
             if(state.mode==='demo'){ const id=crypto.randomUUID();await local.putFile(id,file); metadata={id,name:file.name,type:file.type,size:file.size,source:'local'}; }
             else metadata=await google.upload(file,p=>{submit.textContent=`${i+1}/${entries.length} · ${p}%`;});
             const thumbnail = await createThumbnail(file);
+            checkPostAccount();
             if(thumbnail) {
               if(state.mode==='demo'){ const id=crypto.randomUUID();await local.putFile(id,thumbnail);metadata.thumbnail={id,name:thumbnail.name,type:thumbnail.type,size:thumbnail.size,source:'local'}; }
               else { try { metadata.thumbnail=await google.upload(thumbnail,()=>{}); } catch { toast('썸네일 업로드에 실패하여 원본 미리보기를 사용해요.'); } }
             }
             form.uploadedFiles.set(key,metadata);
+            if (postDraftSession?.form === form) capturePostDraft();
           }
           data.files.push(metadata);
         }
       }
       let saved;
+      checkPostAccount();
       if(kind==='event' && state.mode==='live') {
         const event = await google.saveEvent(data,form.dataset.id || undefined);
         if (!form.dataset.id) {
@@ -680,11 +860,18 @@ document.addEventListener('submit', async event => {
           } catch { noticeQueueError='일정은 저장됐지만 알림을 준비하지 못했어요. 저장 공간을 확인해 주세요.'; }
         }
       }
-      else saved = await repository.save(state.mode,state.user,kind,data,form.dataset.id || undefined,form.dataset.version || undefined);
+      else saved = await repository.save(mode,user,kind,data,form.dataset.id || undefined,form.dataset.version || undefined);
+      if (saved && kind === 'post' && draftSession) {
+        if (postDraftSession === draftSession) postDraftSession = null;
+        try { await draftSession.store.discard(true); }
+        catch (error) { noticeQueueError = error.message; }
+      }
+      if (kind === 'post' && !current()) return;
       if (saved) state.records = state.records.filter(r => r.id !== saved.id).concat(saved);
       if (kind !== 'comment') closeDialog();
       let refreshFailed = false;
       try { await load(kind==='event'); } catch { refreshFailed = true; state.error='기록은 저장됐지만 최신 기록을 불러오지 못했어요. 다시 동기화해 주세요.'; }
+      if (kind === 'post' && !current()) return;
       if (!refreshFailed && kind === 'event' && state.mode === 'live' && (state.calendarError || state.upcomingError)) {
         refreshFailed = true; state.error='일정은 저장됐지만 캘린더를 갱신하지 못했어요. 다시 동기화해 주세요.';
       }
@@ -700,7 +887,7 @@ document.addEventListener('submit', async event => {
       render();openPost(state.records.find(r=>r.id===form.dataset.post),scroll);toast('댓글을 남겼어요.');
     }
   } catch(error) { if(errorBox)errorBox.textContent=error.message;else report(error); }
-  finally { state.busy=false; if(submit.isConnected){submit.disabled=false;submit.textContent=original;} }
+  finally { state.busy=false; form.inert=false; if(submit.isConnected){submit.disabled=false;submit.textContent=original;} }
 });
 document.addEventListener('keydown', event => { if (['Enter',' '].includes(event.key) && event.target.matches('[data-action="profile-open"]')) { event.preventDefault(); event.target.click(); } });
 async function seed(){
@@ -717,6 +904,7 @@ async function seed(){
 }
 async function start(callbackUrl){
   startupPending = true;
+  if ($('#editor').open) closeDialog();
   try {
     await auth.callback(callbackUrl);
     if(configured&&auth.user){

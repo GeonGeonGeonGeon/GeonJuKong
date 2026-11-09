@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { basename, dirname } from 'node:path';
 import { pickOrderedMedia } from '../src/native-media.js';
 import { iosMediaPickerProject } from '../scripts/native-projects.mjs';
 
@@ -41,7 +42,7 @@ test('cancellation adds no files and read failures release the entire selection'
 
 test('iOS project generation wires the ordered picker into the actual Capacitor template idempotently', async () => {
   const archive = fileURLToPath(new URL('../node_modules/@capacitor/cli/assets/ios-pods-template.tar.gz', import.meta.url));
-  const extract = name => execFileSync('tar', ['-xOf', archive, name], { encoding: 'utf8', windowsHide: true });
+  const extract = name => execFileSync('tar', ['-xOf', basename(archive), name], { cwd: dirname(archive), encoding: 'utf8', windowsHide: true });
   const delegate = extract('App/App/AppDelegate.swift');
   const storyboard = extract('App/App/Base.lproj/Main.storyboard');
   const source = await readFile(new URL('../scripts/ios-media-picker.swift', import.meta.url), 'utf8');

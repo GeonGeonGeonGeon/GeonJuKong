@@ -115,7 +115,16 @@ export const repository = {
     if (!rows?.length) throw new Error('프로필을 저장하지 못했어요. 다시 시도해 주세요.');
     return rows[0];
   },
-  async updateHomePhoto(selection) { return rest('rpc/update_home_photo', { method: 'POST', body: JSON.stringify({ selection }) }); },
+  async updateHomePhoto(selection) {
+    try { return await rest('rpc/update_home_photo', { method: 'POST', body: JSON.stringify({ selection }) }); }
+    catch (error) {
+      const validPhotos = Array.isArray(selection) && selection.every(item => item.file?.id && item.file.name && item.file.source === 'drive' && item.file.type?.startsWith('image/'));
+      if (error.message === '올바른 사진을 선택해 주세요.' && validPhotos) {
+        throw new Error('홈 사진 저장 형식이 서버와 맞지 않아요. 서버의 홈 사진 업데이트를 적용한 뒤 다시 저장해 주세요.', { cause: error });
+      }
+      throw error;
+    }
+  },
   async coupleSettings() { const rows = await rest('couple_settings?id=eq.1&select=data'); return rows[0]?.data || {}; },
   async createCoupleSettings(data) { return rest('couple_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify({ id: 1, data }) }); },
   async updateCoupleDate(field, date) { return rest('rpc/update_couple_date', { method: 'POST', body: JSON.stringify({ field, date_value: date }) }); },

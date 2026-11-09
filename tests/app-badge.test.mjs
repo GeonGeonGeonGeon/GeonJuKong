@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { basename, dirname } from 'node:path';
 import { native } from '../src/platform.js';
 import { iosAppBadgeProject, iosMediaPickerProject } from '../scripts/native-projects.mjs';
 
@@ -32,7 +33,7 @@ test('iOS 프로젝트를 재설정해도 사진 선택기와 앱 배지가 각�
   const pickerSource = await readFile(new URL('../scripts/ios-media-picker.swift', import.meta.url), 'utf8');
   const badgeSource = await readFile(new URL('../scripts/ios-app-badge.swift', import.meta.url), 'utf8');
   const archive = fileURLToPath(new URL('../node_modules/@capacitor/cli/assets/ios-pods-template.tar.gz', import.meta.url));
-  const extract = name => execFileSync('tar', ['-xOf', archive, name], { encoding: 'utf8', windowsHide: true });
+  const extract = name => execFileSync('tar', ['-xOf', basename(archive), name], { cwd: dirname(archive), encoding: 'utf8', windowsHide: true });
   const delegate = extract('App/App/AppDelegate.swift');
   const storyboard = extract('App/App/Base.lproj/Main.storyboard');
   const first = iosMediaPickerProject(delegate, storyboard, pickerSource);

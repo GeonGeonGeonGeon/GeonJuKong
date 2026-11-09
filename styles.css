@@ -33,6 +33,7 @@ dialog{background:var(--white);border:1px solid var(--line);padding:27px;border-
 
 .museum-photo{position:relative}.home-photo-button{position:absolute;z-index:3;bottom:14px;right:14px;border:0;border-radius:20px;padding:9px 14px;background:#fffef0e8;color:#29221d;cursor:pointer}.home-photo-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;max-height:50vh;overflow:auto}.home-photo-option{min-width:0;border:1px solid var(--line);background:white;padding:5px;cursor:pointer;text-align:left}.home-photo-option img,.home-photo-option .photo-preview{width:100%;height:110px;object-fit:cover}.home-photo-option .photo-preview img{height:100%;object-fit:cover}.home-photo-option span{display:block;overflow-wrap:anywhere;font-size:12px}
 .home-photo-option[aria-pressed="true"]{outline:3px solid #806f60;outline-offset:-3px}.home-photo-navigation{position:absolute;z-index:3;left:12px;bottom:14px;display:flex;align-items:center;gap:6px;color:white;text-shadow:0 1px 3px #000}.home-photo-navigation .memory-arrow{position:static;transform:none}.home-photo-navigation span{font-size:12px}
+.home-photo-add{display:inline-flex;position:relative;align-items:center;cursor:pointer;margin:8px 0}.home-photo-add input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}.home-photo-add:focus-within{outline:2px solid var(--green);outline-offset:3px}.museum-photo>img,.museum-photo>.photo-preview{display:block;width:100%;height:auto}.museum-photo>.photo-preview img{display:block;width:100%;height:auto}
 /* Home */
 main:has(.home-page){position:relative;background:#f4f1eb}
 main:has(.home-page) .home-topbar{position:absolute;z-index:5;right:48px;top:25px;height:auto;margin:0;border:0}
@@ -133,3 +134,7 @@ dialog{overscroll-behavior:contain;overflow-y:auto}
   .calendar-day{height:88px}
   .calendar-preview{width:26px;height:20px;min-height:20px}
 }
+.post-draft-notice { margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 14px; }
+.post-draft-notice p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.post-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.post-draft-actions [hidden] { display: none; }

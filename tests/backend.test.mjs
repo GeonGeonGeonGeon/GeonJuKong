@@ -7,8 +7,8 @@ test('bucket and profile REST writes validate input, protect versions and return
   globalThis.localStorage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
   const previousFetch = globalThis.fetch;
   const { repository } = await import('../src/backend.js?feature-rest-tests');
-  let request, response = [{ id: 'goal', title: 'A goal' }];
-  globalThis.fetch = async (url, options) => { request = { url: new URL(url), options, body: options.body && JSON.parse(options.body) }; return Response.json(response); };
+  let request, response = [{ id: 'goal', title: 'A goal' }], responseStatus = 200;
+  globalThis.fetch = async (url, options) => { request = { url: new URL(url), options, body: options.body && JSON.parse(options.body) }; return Response.json(response, { status: responseStatus }); };
   try {
     await repository.saveBucketItem('member', { title: ' A goal ', notes: '', completed_on: null });
     assert.equal(request.options.method, 'POST'); assert.equal(request.body.author_id, 'member'); assert.equal(request.body.title, 'A goal');
@@ -26,6 +26,18 @@ test('bucket and profile REST writes validate input, protect versions and return
     assert.equal(saved.user_id, 'member'); assert.equal(request.url.pathname, '/rest/v1/member_profiles');
     assert.match(request.options.headers.Prefer, /resolution=merge-duplicates/);
     assert.deepEqual(request.body, { user_id: 'member', data: { name: '', status: 'hello', bio: '', photo: '' } });
+    const photos = [{ recordId: 'post', fileId: 'photo', file: { id: 'photo', name: 'photo.jpg', source: 'drive', type: 'image/jpeg' }, selected: false }];
+    response = { homePhoto: photos };
+    assert.deepEqual(await repository.updateHomePhoto(photos), response);
+    assert.equal(request.url.pathname, '/rest/v1/rpc/update_home_photo');
+    assert.deepEqual(request.body, { selection: photos });
+    responseStatus = 400; response = { code: 'P0001', message: '올바른 사진을 선택해 주세요.' };
+    await assert.rejects(repository.updateHomePhoto(photos), error => {
+      assert.match(error.message, /서버.*업데이트/); assert.equal(error.cause.message, response.message); return true;
+    });
+    await assert.rejects(repository.updateHomePhoto([{ file: { ...photos[0].file, type: 'video/mp4' } }]), { message: '올바른 사진을 선택해 주세요.' });
+    responseStatus = 403; response = { message: 'Forbidden' };
+    await assert.rejects(repository.updateHomePhoto(photos), { message: 'Forbidden' });
     await assert.rejects(repository.saveProfile('member', { photo: 'https://invalid.test/image.svg' }), /프로필 사진/);
   } finally { globalThis.fetch = previousFetch; }
 });

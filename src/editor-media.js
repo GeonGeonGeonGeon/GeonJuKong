@@ -22,6 +22,10 @@ export function createMediaDraft(existingFiles = []) {
   const inRange = index => Number.isInteger(index) && index >= 0 && index < items.length;
   return {
     entries() { return items.map(item => ({ ...item })); },
+    restore(entries) {
+      for (const item of items) if (item.url) URL.revokeObjectURL(item.url);
+      items = entries.map(item => item.file ? { ...item, url: URL.createObjectURL(item.file) } : { ...item });
+    },
     addFiles(files) {
       // Validate the whole selection before changing the draft.
       const selected = Array.from(files, selectedMediaFile);

@@ -16,7 +16,7 @@ test('shared polling refreshes settings, reads, calendar and comments without lo
   const commentButton = { matches: () => false };
   const draft = { value: 'draft text', selectionStart: 2, selectionEnd: 4, matches: () => true, focus() { document.activeElement = this; }, addEventListener() {}, removeEventListener() {} };
   const error = { textContent: '' }, commentForm = { querySelector: () => error, scrollIntoView() {} };
-  globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://example.test', supabaseAnonKey: 'public' }, addEventListener() {}, removeEventListener() {}, scrollTo() {} };
+  globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://example.test', supabaseAnonKey: 'public' }, addEventListener() {}, removeEventListener() {}, scrollTo() {}, requestAnimationFrame() { return 1; }, cancelAnimationFrame() {} };
   Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
   globalThis.document = { hidden: false, activeElement: { matches: () => false }, querySelector: selector => ({ '#app': app, '#toast': toast, '#editor': editor, '#comment-text': draft, '#comment-form': editor.open && editor.innerHTML.includes('id="comment-form"') ? commentForm : null })[selector] || null, querySelectorAll: () => [], addEventListener: (type, fn) => listeners.set(type, fn) };
   globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };

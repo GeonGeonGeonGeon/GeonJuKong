@@ -242,7 +242,7 @@ function postCard(row, priority = false) {
   const files = row.data.files || [];
   const cover = files.length ? `<div class="memory-cover memory-gallery"><div class="memory-slides" aria-label="첨부 파일 미리보기" tabindex="0">${files.map((originalFile, index) => { let file = previewFile(originalFile); if (file && !cachedPhotoUrl(file) && cachedPhotoUrl(originalFile)) file = originalFile; return originalFile.type.startsWith('video/') ? `<div class="memory-slide">${videoPreview(originalFile)}</div>` : `<button class="memory-slide" data-action="open-post" data-id="${row.id}" aria-label="${e(postTitle(row))} ${state.view === 'memories' ? '일기' : '게시글'} 열기">${file.type.startsWith('image/') ? file.source === 'local' ? `<img data-file="${e(file.id)}"${cachedLocalPhoto(file.id)} alt="${e(file.name)}" loading="${priority && index === 0 ? 'eager' : 'lazy'}">` : drivePhoto(originalFile,file.name,false,priority && index === 0) : `<div class="file-cover">${icon('cloud')}<span>Drive에 보관한 순간</span><small>${e(file.name)}</small></div>`}</button>`; }).join('')}</div>${files.length > 1 ? `<button type="button" class="memory-arrow memory-prev" data-action="attachment-prev" aria-label="이전 사진 또는 동영상" disabled>${icon('left')}</button><button type="button" class="memory-arrow memory-next" data-action="attachment-next" aria-label="다음 사진 또는 동영상">${icon('right')}</button><span class="file-count attachment-position" aria-live="polite">1 / ${files.length}</span>` : ''}</div>` : '';
   const commentCount = records('comment').filter(c => c.data.postId === row.id).length;
-  return `<article class="memory-card${files.length ? '' : ' memory-text-only'}">${cover}<div class="memory-info"><p class="memory-date">${formatDate(row.data.date, { year:'numeric',month:'2-digit',day:'2-digit' })}</p><button class="title-button" data-action="open-post" data-id="${row.id}"><h3>${e(postTitle(row))}</h3></button><button type="button" class="memory-excerpt" data-action="open-post" data-id="${row.id}" aria-haspopup="dialog">${e(row.data.text || '함께한 순간을 간직해요.')}</button><div class="memory-meta"><span>${avatar(row.author_id, true)}${e(nameOf(row.author_id))}</span><button type="button" class="memory-comments" data-action="open-comments" data-id="${row.id}" aria-label="${e(postTitle(row))} 댓글 ${commentCount}개 보기" aria-haspopup="dialog">${icon('chat')}${commentCount}</button></div></div></article>`;
+  return `<article class="memory-card${files.length ? '' : ' memory-text-only'}">${cover}<div class="memory-info" data-action="open-post" data-id="${row.id}"><p class="memory-date">${formatDate(row.data.date, { year:'numeric',month:'2-digit',day:'2-digit' })}</p><button class="title-button" data-action="open-post" data-id="${row.id}"><h3>${e(postTitle(row))}</h3></button><button type="button" class="memory-excerpt" data-action="open-post" data-id="${row.id}" aria-haspopup="dialog">${e(row.data.text || '함께한 순간을 간직해요.')}</button><div class="memory-meta"><span>${avatar(row.author_id, true)}${e(nameOf(row.author_id))}</span><button type="button" class="memory-comments" data-action="open-comments" data-id="${row.id}" aria-label="${e(postTitle(row))} 댓글 ${commentCount}개 보기" aria-haspopup="dialog">${icon('chat')}${commentCount}</button></div></div></article>`;
 }
 function memories() {
   const list = sortRecords(memoriesRows(), 'date').filter(row => `${row.data.title} ${row.data.text}`.toLowerCase().includes(state.filter.toLowerCase()));
@@ -604,7 +604,7 @@ document.addEventListener('click', async event => {
     finally { state.busy = false; }
     return;
   }
-  const button = event.target.closest('[data-action="profile-open"], button, a[data-action], a[data-view]'); if (!button) return;
+  const button = event.target.closest('[data-action="profile-open"], button, a[data-action], a[data-view], .memory-info[data-action="open-post"]'); if (!button) return;
   try {
     if (button.dataset.view) { if (button.tagName === 'A') event.preventDefault(); await navigate(button.dataset.view); return; }
     const action = button.dataset.action; const row = state.records.find(r => r.id === button.dataset.id);
@@ -687,7 +687,7 @@ document.addEventListener('click', async event => {
         if (row.kind === 'comment') document.getElementById?.(`comment-${row.id}`)?.scrollIntoView?.({ block: 'nearest' });
       }
     }
-    if (action === 'reply' && row) { state.replyTo = row.id; openPost(state.records.find(r => r.id === row.data.postId),$('#editor').scrollTop); replyFocusCleanup = focusReplyInput($('#editor'), $('#comment-text'), $('#comment-form')); }
+    if (action === 'reply' && row) { state.replyTo = row.id; openPost(state.records.find(r => r.id === row.data.postId),$('#editor').scrollTop); replyFocusCleanup = focusReplyInput($('#editor'), $('#comment-text')); }
     if (action === 'cancel-reply') { state.replyTo=''; openPost(state.records.find(r => r.id === state.activePost),$('#editor').scrollTop); }
     if (action === 'attachment-prev' || action === 'attachment-next') {
       const gallery = button.closest('.attachment-gallery, .memory-gallery'); const track = gallery.querySelector('.attachments, .memory-slides');

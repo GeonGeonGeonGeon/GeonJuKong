@@ -11,7 +11,7 @@ test('summary comments open independently and stay in the popup through comment 
   const app = {innerHTML:''}, toast = {textContent:'',classList:{add(){},remove(){}}};
   const editor = {innerHTML:'',open:false,scrollTop:0,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){},classList:{add(){},remove(){}},style:{setProperty(){},removeProperty(){}}};
   let focused = 0;
-  globalThis.window = {APP_CONFIG:{},addEventListener:(type,fn)=>windowEvents.set(type,fn),removeEventListener:type=>windowEvents.delete(type),scrollTo(){}};
+  globalThis.window = {APP_CONFIG:{},addEventListener:(type,fn)=>windowEvents.set(type,fn),removeEventListener:type=>windowEvents.delete(type),scrollTo(){},requestAnimationFrame(){return 1;},cancelAnimationFrame(){}};
   Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
   globalThis.document = {
     querySelector(selector) {
@@ -67,6 +67,11 @@ test('summary comments open independently and stay in the popup through comment 
     await click({view:'memories'});
     await openExcerpt(post);
     await openExcerpt(other);
+    assert.match(app.innerHTML,/<div class="memory-info" data-action="open-post" data-id="popup-post">/);
+    const blankArea = {dataset:{action:'open-post',id:post.id}};
+    await listeners.get('click')({target:{closest:selector=>selector.split(', ').includes('.memory-info[data-action="open-post"]') ? blankArea : null}});
+    assert.equal(editor.open,true); assert.ok(editor.innerHTML.includes(post.data.text)); assert.doesNotMatch(editor.innerHTML,/comments-post-title/);
+    await click({action:'close'});
     assert.match(app.innerHTML,/aria-label="Popup post 댓글 0개 보기" aria-haspopup="dialog"/);
     await click({action:'open-comments',id:post.id}); assertPopup();
     assert.match(editor.innerHTML,/첫 댓글/);
@@ -107,10 +112,10 @@ test('summary comments open independently and stay in the popup through comment 
 
 test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정·버킷리스트와 작성자 권한',async()=>{
   const rows=new Map(),files=new Map(),values=new Map(),listeners=new Map();
-  const replyFocus=[],replyScroll=[];
-  const replyInput={focus:options=>replyFocus.push(options),addEventListener(){},removeEventListener(){}},replyForm={scrollIntoView:options=>replyScroll.push(options)};
+  const replyFocus=[],replyFrames=[];
+  const replyInput={focus:options=>replyFocus.push(options),addEventListener(){},removeEventListener(){}},replyForm={};
   const app={innerHTML:''},toast={textContent:'',classList:{add(){},remove(){}}},editor={innerHTML:'',open:false,showModal(){this.open=true;},close(){this.open=false;},addEventListener(){},classList:{add(){},remove(){}},style:{setProperty(){},removeProperty(){}}};
-  globalThis.window={APP_CONFIG:{},addEventListener(){},removeEventListener(){},scrollTo(){}};
+  globalThis.window={APP_CONFIG:{},addEventListener(){},removeEventListener(){},scrollTo(){},requestAnimationFrame(fn){replyFrames.push(fn);return replyFrames.length;},cancelAnimationFrame(){}};
   Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
   globalThis.document={querySelector(selector){return({'#app':app,'#editor':editor,'#toast':toast,'#comment-text':replyInput,'#comment-form':replyForm})[selector]||null;},querySelectorAll(){return[];},addEventListener(type,fn){listeners.set(type,fn);},activeElement:{matches(){return false;}}};
   globalThis.localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
@@ -179,7 +184,7 @@ test('앱 체험 흐름: 일기 제거, 사진 없는 게시글·댓글·일정�
     assert.ok(editor.innerHTML.indexOf(`id="comment-${comment.id}"`) < editor.innerHTML.indexOf('id="comment-form"'));
     assert.ok(editor.innerHTML.indexOf('id="comment-form"') < editor.innerHTML.indexOf(`id="comment-${nextComment.id}"`));
     assert.match(editor.innerHTML,/class="comment-form reply-form"/);assert.match(editor.innerHTML,/답글 남기기/);
-    assert.deepEqual(replyFocus,[{preventScroll:true}]);assert.deepEqual(replyScroll,[{block:'center',behavior:'instant'}]);
+    assert.deepEqual(replyFocus,[{preventScroll:true}]);assert.equal(replyFrames.length,1);
     await click({action:'cancel-reply'});
     assert.doesNotMatch(editor.innerHTML,/reply-form|data-action="cancel-reply"/);
     assert.ok(editor.innerHTML.indexOf('id="comment-form"') > editor.innerHTML.indexOf(`id="comment-${nextComment.id}"`));

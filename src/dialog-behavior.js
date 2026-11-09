@@ -14,30 +14,49 @@ export function unlockPage() {
   document.documentElement?.classList.remove('modal-open');
   window.scrollTo({ top: saved.y, behavior: 'instant' });
 }
-export function focusReplyInput(editor, input, form) {
+export function focusReplyInput(editor, input) {
   const viewport = window.visualViewport;
+  let frame = null;
   const updateViewport = () => {
     editor.style.setProperty('--reply-viewport-top', `${viewport?.offsetTop || 0}px`);
     editor.style.setProperty('--reply-viewport-height', `${viewport?.height || window.innerHeight}px`);
   };
   const keepVisible = () => {
+    frame = null;
+    if (!editor.open || document.activeElement !== input) return;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportBottom = viewportTop + (viewport?.height || window.innerHeight);
+    const bounds = editor.getBoundingClientRect();
+    const rect = input.getBoundingClientRect();
+    const top = Math.max(viewportTop, bounds.top + editor.clientTop) + 12;
+    const bottom = Math.min(viewportBottom, bounds.top + editor.clientTop + editor.clientHeight) - 12;
+    if (bottom <= top) return;
+    // Scroll only the dialog; scrolling ancestors can also move the locked page on iOS.
+    if (rect.top < top || rect.height > bottom - top) editor.scrollTop += rect.top - top;
+    else if (rect.bottom > bottom) editor.scrollTop += rect.bottom - bottom;
+  };
+  const schedule = () => {
     updateViewport();
-    if (editor.open && document.activeElement === input) form.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    // Measure after the viewport styles have changed the dialog's layout.
+    if (frame === null) frame = window.requestAnimationFrame(keepVisible);
   };
   editor.classList.add('reply-composing');
   updateViewport();
   // Focus during the reply tap so mobile browsers can open the keyboard.
   input.focus({ preventScroll: true });
-  form.scrollIntoView({ block: 'center', behavior: 'instant' });
-  input.addEventListener('focus', keepVisible);
-  viewport?.addEventListener('resize', keepVisible);
-  viewport?.addEventListener('scroll', keepVisible);
-  window.addEventListener('resize', keepVisible);
+  schedule();
+  input.addEventListener('focus', schedule);
+  input.addEventListener('input', schedule);
+  viewport?.addEventListener('resize', schedule);
+  viewport?.addEventListener('scroll', schedule);
+  window.addEventListener('resize', schedule);
   return () => {
-    input.removeEventListener('focus', keepVisible);
-    viewport?.removeEventListener('resize', keepVisible);
-    viewport?.removeEventListener('scroll', keepVisible);
-    window.removeEventListener('resize', keepVisible);
+    if (frame !== null) window.cancelAnimationFrame(frame);
+    input.removeEventListener('focus', schedule);
+    input.removeEventListener('input', schedule);
+    viewport?.removeEventListener('resize', schedule);
+    viewport?.removeEventListener('scroll', schedule);
+    window.removeEventListener('resize', schedule);
     editor.classList.remove('reply-composing');
     editor.style.removeProperty('--reply-viewport-top');
     editor.style.removeProperty('--reply-viewport-height');

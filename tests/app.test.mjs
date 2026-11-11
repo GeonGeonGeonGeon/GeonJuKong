@@ -285,3 +285,47 @@ test('Drive 사진은 보이는 시점에 불러오고 오류·로그아웃 시 
     release(new Blob(['late private photo'],{type:'image/jpeg'}));await tick();assert.equal(created,2);assert.equal(pending.img.src,'');
   }finally{local.list=originalList;google.image=originalImage;URL.createObjectURL=originalCreate;URL.revokeObjectURL=originalRevoke;globalThis.setInterval=originalInterval;if(originalObserver)globalThis.IntersectionObserver=originalObserver;else delete globalThis.IntersectionObserver;}
 });
+
+test('delayed local photos do not block the demo screen or update it after an account change', async () => {
+  const listeners = new Map(), values = new Map([['geonjukong-seeded', '1'], ['geonjukong-demo-couple', JSON.stringify({ startDate: '2020-01-01', homePhoto: [{ file: { id: 'local-photo', source: 'local', name: 'local.jpg', type: 'image/jpeg' } }] })]]);
+  const app = { innerHTML: '' }, toast = { textContent: '', classList: { add() {}, remove() {} } };
+  const editor = { innerHTML: '', open: false, addEventListener() {}, close() { this.open = false; } };
+  const cover = { hidden: false }, status = { textContent: '' };
+  const img = { dataset: { file: 'local-photo', priority: 'high' }, tagName: 'IMG', src: '', hidden: true, isConnected: true };
+  img.parentElement = { querySelector: s => s === '.file-cover' ? cover : s === '[data-preview-status]' ? status : img };
+  let images = [img], created = 0;
+  globalThis.window = { APP_CONFIG: {}, addEventListener() {}, scrollTo() {} };
+  Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
+  globalThis.document = { hidden: false, activeElement: { matches: () => false }, querySelector: s => ({ '#app': app, '#editor': editor, '#toast': toast })[s] || null, querySelectorAll: s => s === 'img[data-file], video[data-file]' ? images : [], addEventListener: (type, fn) => listeners.set(type, fn) };
+  globalThis.localStorage = { getItem: k => values.get(k) ?? null, setItem: (k, v) => values.set(k, v), removeItem: k => values.delete(k) };
+  globalThis.sessionStorage = localStorage; globalThis.location = { href: 'http://localhost/', origin: 'http://localhost', pathname: '/', hash: '#home' }; globalThis.history = { replaceState() {} };
+  const { local } = await import('../src/storage.js'), { google } = await import('../src/google.js'), { auth } = await import('../src/backend.js');
+  const originals = [local, google, auth].map(value => Object.getOwnPropertyDescriptors(value));
+  const oldInterval = globalThis.setInterval, oldObserver = globalThis.IntersectionObserver, oldCreate = URL.createObjectURL;
+  globalThis.setInterval = () => 0; globalThis.IntersectionObserver = undefined;
+  URL.createObjectURL = () => { created++; return 'blob:old-local'; };
+  const releases = [];
+  Object.assign(local, { list: async () => [], file: () => new Promise(resolve => releases.push(resolve)) });
+  Object.assign(google, { prepare: async () => {} });
+  Object.defineProperty(auth, 'user', { configurable: true, get: () => null });
+  auth.callback = async () => {};
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+  const click = dataset => listeners.get('click')({ target: { closest: () => ({ dataset }) } });
+  try {
+    await import('../src/app.js?slow-local-startup');
+    for (let i = 0; i < 50 && (!releases.length || !app.innerHTML.includes('museum-photo')); i++) await tick();
+    assert.ok(releases.length); assert.match(app.innerHTML, /museum-photo/); assert.equal(img.src, '');
+    await click({ view: 'calendar' }); assert.match(app.innerHTML, /OUR SHARED DAYS/);
+    await click({ view: 'settings' }); assert.match(app.innerHTML, /MAKE OURSELVES AT HOME/);
+    images = [];
+    await listeners.get('change')({ target: { id: 'demo-person', value: 'demo-partner' } });
+    const before = app.innerHTML;
+    for (const release of releases) release({ blob: new Blob(['old local photo'], { type: 'image/jpeg' }) });
+    await tick();
+    assert.equal(created, 0); assert.equal(img.src, ''); assert.equal(app.innerHTML, before);
+    img.onload(); assert.equal(img.hidden, true); assert.equal(cover.hidden, false);
+  } finally {
+    [local, google, auth].forEach((value, i) => Object.defineProperties(value, originals[i]));
+    globalThis.setInterval = oldInterval; globalThis.IntersectionObserver = oldObserver; URL.createObjectURL = oldCreate;
+  }
+});

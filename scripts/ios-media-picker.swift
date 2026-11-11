@@ -1,3 +1,4 @@
+import Photos
 import PhotosUI
 import UniformTypeIdentifiers
 
@@ -17,6 +18,14 @@ public class OrderedMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin, PHPickerView
     ]
     private var pendingCall: CAPPluginCall?
     private var selectionDirectory: URL?
+    private var preselectedIdentifiers: [String] = []
+    private lazy var pickerDevice: String = {
+        let key = "geonjukong-picker-device"
+        if let device = UserDefaults.standard.string(forKey: key) { return device }
+        let device = "ios:" + UUID().uuidString
+        UserDefaults.standard.set(device, forKey: key)
+        return device
+    }()
 
     @objc func pick(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -25,10 +34,22 @@ public class OrderedMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin, PHPickerView
                 call.reject("사진 선택이 끝날 때까지 기다려 주세요.")
                 return
             }
-            var configuration = PHPickerConfiguration()
+            var configuration = PHPickerConfiguration(photoLibrary: PHPhotoLibrary.shared())
             configuration.filter = .any(of: [.images, .videos])
             configuration.selectionLimit = 0
-            if #available(iOS 15.0, *) { configuration.selection = .ordered }
+            self.preselectedIdentifiers = []
+            if #available(iOS 15.0, *) {
+                configuration.selection = .ordered
+                let assets = call.getArray("selectedAssets", JSObject.self) ?? []
+                var seen = Set<String>()
+                self.preselectedIdentifiers = assets.compactMap { asset -> String? in
+                    guard let device = asset["device"] as? String, device == self.pickerDevice,
+                          let identifier = asset["uri"] as? String, !identifier.isEmpty,
+                          seen.insert(identifier).inserted else { return nil }
+                    return identifier
+                }
+                configuration.preselectedAssetIdentifiers = self.preselectedIdentifiers
+            }
             configuration.preferredAssetRepresentationMode = .current
             let picker = PHPickerViewController(configuration: configuration)
             picker.delegate = self
@@ -40,9 +61,16 @@ public class OrderedMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin, PHPickerView
     public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
         guard let call = pendingCall else { return }
-        if results.isEmpty {
+        let identifiers = results.compactMap { $0.assetIdentifier }
+        guard identifiers.count == results.count else {
+            failSelection(call)
+            return
+        }
+        // Cancel returns the original preselection with empty item providers.
+        if identifiers == preselectedIdentifiers {
             pendingCall = nil
-            call.resolve(["files": []])
+            preselectedIdentifiers = []
+            call.resolve(["cancelled": true, "files": []])
             return
         }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -57,8 +85,21 @@ public class OrderedMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin, PHPickerView
 
     private func loadSelection(_ results: [PHPickerResult], index: Int, files: [[String: Any]], directory: URL, call: CAPPluginCall) {
         if index == results.count {
+            let response: [String: Any] = ["selectionId": directory.lastPathComponent, "files": files,
+                "selectedUris": results.compactMap { $0.assetIdentifier },
+                "preselectedUris": preselectedIdentifiers, "pickerDevice": pickerDevice]
             pendingCall = nil
-            call.resolve(["selectionId": directory.lastPathComponent, "files": files])
+            preselectedIdentifiers = []
+            call.resolve(response)
+            return
+        }
+        guard let assetIdentifier = results[index].assetIdentifier else {
+            failSelection(call)
+            return
+        }
+        // Preselected results have no file provider; their originals are already attached.
+        if preselectedIdentifiers.contains(assetIdentifier) {
+            loadSelection(results, index: index + 1, files: files, directory: directory, call: call)
             return
         }
         let provider = results[index].itemProvider
@@ -81,7 +122,8 @@ public class OrderedMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin, PHPickerView
                 let attributes = try FileManager.default.attributesOfItem(atPath: destination.path)
                 let modified = attributes[.modificationDate] as? Date ?? Date()
                 let file: [String: Any] = ["path": destination.absoluteString, "name": name,
-                    "type": type?.preferredMIMEType ?? "", "lastModified": modified.timeIntervalSince1970 * 1000]
+                    "type": type?.preferredMIMEType ?? "", "lastModified": modified.timeIntervalSince1970 * 1000,
+                    "pickerUri": assetIdentifier, "pickerDevice": self.pickerDevice]
                 DispatchQueue.main.async {
                     self.loadSelection(results, index: index + 1, files: files + [file], directory: directory, call: call)
                 }
@@ -95,6 +137,7 @@ public class OrderedMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin, PHPickerView
         if let directory = selectionDirectory { try? FileManager.default.removeItem(at: directory) }
         selectionDirectory = nil
         pendingCall = nil
+        preselectedIdentifiers = []
         call.reject("선택한 사진·동영상을 읽지 못했어요. 다시 선택해 주세요.")
     }
 

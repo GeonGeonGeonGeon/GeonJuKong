@@ -17,6 +17,7 @@ dialog{background:var(--white);border:1px solid var(--line);padding:27px;border-
 .couple-date{font-size:11px;color:#849177;margin-bottom:8px}.couple-date-fields{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:7px;margin-top:5px}.couple-date-fields select{min-width:0}
 #couple-setup-form label{display:block;font-size:11px;color:#849177;margin:12px 0 8px}#couple-setup-form input,#couple-setup-form select{width:100%;border:1px solid #dfe4d3;background:var(--white);padding:10px;border-radius:8px;font-size:12px}#couple-setup-form input{display:block;margin-top:5px}
 .notification-actions{display:flex;justify-content:flex-end;margin-bottom:8px}
+.notification-feedback{margin:0 0 12px;font-size:12px}
 
 .home-topbar{justify-content:flex-end}.anniversary-card{margin:0 0 20px}
 .memory-slides{display:flex;width:100%;height:100%;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}.memory-slides::-webkit-scrollbar{display:none}.memory-slide{flex:0 0 100%;min-width:0;height:100%;padding:0;scroll-snap-align:start}.memory-arrow{position:absolute;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#fffefbd9;color:var(--green)}.memory-arrow:disabled{visibility:hidden}.memory-arrow .icon{width:17px;height:17px}.memory-prev{left:10px}.memory-next{right:10px}
@@ -60,7 +61,8 @@ main:has(.home-page) .home-topbar{position:absolute;z-index:5;right:48px;top:25p
 .home-event{display:grid;grid-template-columns:120px 54px minmax(0,1fr);align-items:center;gap:18px}.home-event-date strong,.home-event-date span{display:block}.home-event-date strong{font:25px Georgia,serif}.home-event-date span{font-size:13px;color:#777;margin-top:5px}.home-event-icon{width:50px;height:50px;border-radius:50%;display:grid;place-items:center;background:#7e846f;color:white}.home-event-icon .icon{width:24px;height:24px}.home-event-detail{min-width:0;display:flex;align-items:center;justify-content:space-between;background:#faf8f4;border-radius:16px;padding:18px 20px}.home-event-detail strong{font:600 18px Georgia,"Batang",serif;overflow-wrap:anywhere}.home-event-detail p{color:#777;font-size:13px;margin-top:6px;overflow-wrap:anywhere}
 @media(max-width:700px){main:has(.home-page) .home-topbar{right:20px;top:18px}.home-page{padding:20px 20px 32px}.museum-masthead{margin-bottom:20px}.museum-masthead h1{font-size:clamp(32px,9vw,48px)}.museum-masthead p{font-size:11px}.museum-photo-empty{height:100%}.home-hero-copy p{font-size:15px}.home-hero-copy strong{font-size:clamp(44px,12vw,70px)}.home-hero-copy span{font-size:13px;margin-top:10px;padding-top:8px}.home-hero-copy span:before{margin-bottom:9px}.home-section{margin-top:30px}.home-section .section-heading{gap:10px}.home-section .section-heading h2{font-size:15px;letter-spacing:.16em}.home-section .section-heading button{font-size:11px}.home-event{grid-template-columns:75px 36px minmax(0,1fr);gap:8px}.home-event-date strong{font-size:20px}.home-event-date span{font-size:11px}.home-event-icon{width:36px;height:36px}.home-event-icon .icon{width:19px;height:19px}.home-event-detail{padding:13px 12px}.home-event-detail strong{font-size:15px}.home-event-detail p{font-size:11px}}
 .modal-open{overflow:hidden;overscroll-behavior:none}
-dialog{overscroll-behavior:contain;overflow-y:auto}
+dialog{overscroll-behavior:contain;overflow-x:hidden;overflow-y:auto}
+dialog::backdrop{touch-action:none}
 .attachments,.memory-slides{overflow-y:hidden;touch-action:pan-x pan-y pinch-zoom;align-items:stretch;user-select:none}
 .attachments{height:min(520px,65dvh)}
 .attachment{display:flex;flex-direction:column;justify-content:center;height:100%}
@@ -73,13 +75,13 @@ dialog{overscroll-behavior:contain;overflow-y:auto}
 .video-load{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:95%;z-index:1;white-space:nowrap}
 .video-load[hidden]{display:none}
 .video-status{position:absolute;inset:auto 8px 40px;font-size:11px;text-align:center;background:#292521b3}
-.calendar-day{height:112px;gap:2px}
+.calendar-day{height:auto;min-height:112px;gap:2px}
 .calendar-preview{width:36px;height:30px;min-height:30px;overflow:hidden;border-radius:4px;margin-top:auto;flex:none;background:#e6dbce}
 .calendar-preview img{display:block;width:100%;height:100%;object-fit:cover}
 .calendar-preview .photo-preview{height:100%}
 .calendar-preview .file-cover{display:none}
-.calendar-day .day-markers{min-height:0;overflow:hidden}
-@media(max-width:700px){.calendar-day{height:104px}.calendar-preview{width:30px;height:26px;min-height:26px}.attachments{height:min(470px,60dvh)}}
+.calendar-day .day-markers{flex:none;min-height:0;overflow:hidden}
+@media(max-width:700px){.calendar-day{height:auto;min-height:104px}.calendar-preview{width:30px;height:26px;min-height:26px}.attachments{height:min(470px,60dvh)}}
 
 .memory-text-only{align-self:start}.memory-text-only .memory-excerpt{white-space:pre-wrap;overflow-wrap:anywhere}.museum-memories .memory-text-only{border:1px solid var(--line)}.museum-memories .memory-text-only .memory-info{position:static;padding:20px 24px;background:none;color:var(--ink);pointer-events:auto}.museum-memories .memory-text-only .title-button{color:var(--ink)}.museum-memories .memory-text-only .memory-date,.museum-memories .memory-text-only .memory-excerpt,.museum-memories .memory-text-only .memory-meta{color:var(--muted)}.museum-memories .memory-text-only .memory-meta{display:flex}
 
@@ -88,7 +90,9 @@ dialog{overscroll-behavior:contain;overflow-y:auto}
 .event-tone-male{--event-color:#6aafd2;--event-background:#e1f2fc;--event-ink:#326682}
 .day-markers .event-marker{background:var(--event-background);color:var(--event-ink);border-left:2px solid var(--event-color)}
 .event-row .event-line,.event-row:nth-child(even) .event-line{background:var(--event-color)}
-.event-row strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.day-markers .event-marker,.event-row strong,.home-event-detail strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis;overflow-wrap:anywhere}
+.home-event-detail>div{min-width:0;flex:1}
+.home-event-detail>.icon-button{flex-shrink:0}
 .event-row .event-time{white-space:nowrap;flex-shrink:0}
 .event-row .event-line,.event-row .icon-button{flex-shrink:0}
 .home-event .home-event-icon{background:var(--event-background);color:var(--event-ink)}
@@ -123,7 +127,7 @@ dialog.reply-composing{top:calc(var(--reply-viewport-top) + var(--reply-viewport
 dialog.reply-composing textarea{font-size:16px;max-height:max(48px,calc(var(--reply-viewport-height) - 112px))}
 @media(max-width:700px){
   :root{--mobile-nav-height:69px}
-  html,body{overflow-x:clip}
+  html,body{overflow-x:clip;overscroll-behavior-x:none}
   #app,.page{min-width:0;width:100%}
   main{min-width:0;min-height:100dvh;padding-bottom:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom,0px))}
   .sidebar{position:fixed;inset:auto 0 0;width:auto;height:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom,0px));padding:7px 6px calc(7px + env(safe-area-inset-bottom,0px))}
@@ -133,7 +137,7 @@ dialog.reply-composing textarea{font-size:16px;max-height:max(48px,calc(var(--re
   .calendar-page .page-heading>div{min-width:0;flex:1 1 180px}
   .calendar-page .page-heading>.primary{margin-top:0}
   .calendar-card{padding:18px 9px}
-  .calendar-day{height:88px}
+  .calendar-day{height:auto;min-height:88px}
   .calendar-preview{width:26px;height:20px;min-height:20px}
 }
 .post-draft-notice { margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 14px; }

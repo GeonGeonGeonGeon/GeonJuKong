@@ -20,7 +20,7 @@ test('home photo library keeps used photos and sorts selections only when openin
   let saved, failSave = false, failUpload = false, legacyValidation = true;
   const uploads = [], revoked = [], oldRevoke = URL.revokeObjectURL;
   URL.revokeObjectURL = url => revoked.push(url);
-  Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => rows, readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01', homePhoto: [{ file: file('a') }] }), updateHomePhoto: async selection => {
+  Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => rows, readAt: async () => [], notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01', homePhoto: [{ file: file('a') }] }), bucketItems: async () => [], profiles: async () => [], updateHomePhoto: async selection => {
     // The pre-gallery SQL requires a recordId and fileId on every photo.
     if (legacyValidation && selection.some(item => !item.recordId || !item.fileId)) throw new Error('올바른 사진을 선택해 주세요.');
     if (failSave) throw new Error('Settings save failed');
@@ -160,37 +160,49 @@ test('demo home photo library persists deselected photos across a fresh app load
   }
 });
 
-test('startup downloads and decodes all home photos before rendering, with bounded failure recovery', async t => {
-  for (const scenario of ['ready', 'fallback', 'denied', 'timeout', 'local', 'local-fallback', 'gallery', 'local-gallery', 'archive', 'local-archive', 'empty']) await t.test(scenario, async () => {
-    const values = new Map([['geonjukong-auth', JSON.stringify({ user: { id: 'u1', email: 'one@example.com' }, access_token: 'session', expires_at: Date.now() + 3600000 })]]);
-    const listeners = new Map(), intervals = [], app = { innerHTML: '<div class="boot">Starting</div>' };
-    const editor = { open: false, addEventListener() {} }, toast = { classList: { add() {}, remove() {} } };
+test('startup renders before photo downloads and decoding, and only requests visible photos', async t => {
+  for (const scenario of ['drive', 'fallback', 'denied', 'pending', 'local', 'local-fallback', 'empty']) await t.test(scenario, async () => {
+    const values = new Map(), listeners = new Map(), requests = [], signals = [], releases = new Map();
+    const editor = { innerHTML: '', open: false, addEventListener() {}, showModal() { this.open = true; }, close() { this.open = false; } };
+    const toast = { classList: { add() {}, remove() {} } };
+    let html = '', images = [], observer, created = 0, decodeCalls = 0;
+    const app = { get innerHTML() { return html; }, set innerHTML(value) {
+      images.forEach(img => { img.isConnected = false; }); images = []; html = value;
+      for (const match of value.matchAll(/<div class="photo-preview"><div class="file-cover"[^>]*>[\s\S]*?<\/div><img ([^>]+)>/g)) {
+        const attrs = Object.fromEntries([...match[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(([, key, value]) => [key, value]));
+        const dataset = {};
+        for (const [key, value] of Object.entries(attrs)) if (key.startsWith('data-')) dataset[key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value;
+        const cover = { hidden: false }, status = { textContent: '' };
+        const img = { dataset, isConnected: true, hidden: !attrs.src, src: attrs.src || '', tagName: 'IMG', cover, status };
+        img.parentElement = { querySelector: s => s === 'img' ? img : s === '.file-cover' ? cover : s === '[data-preview-status]' ? status : null };
+        images.push(img);
+      }
+    } };
     globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://example.test', supabaseAnonKey: 'public' }, addEventListener() {}, scrollTo() {} };
-    globalThis.document = { hidden: false, activeElement: { matches: () => false }, querySelector: s => ({ '#app': app, '#editor': editor, '#toast': toast })[s] || null, querySelectorAll: () => [], addEventListener: (type, fn) => listeners.set(type, fn) };
+    globalThis.document = { hidden: false, activeElement: { matches: () => false }, querySelector: s => ({ '#app': app, '#editor': editor, '#toast': toast })[s] || null, querySelectorAll: s => s === 'img[data-drive-file]' ? images.filter(img => img.dataset.driveFile) : s === 'img[data-file], video[data-file]' ? images.filter(img => img.dataset.file) : [], addEventListener: (type, fn) => listeners.set(type, fn) };
     globalThis.localStorage = { getItem: k => values.get(k) ?? null, setItem: (k, v) => values.set(k, v), removeItem: k => values.delete(k) };
     globalThis.sessionStorage = localStorage;
     globalThis.location = { href: 'http://localhost/', origin: 'http://localhost', pathname: '/', hash: '#home' };
     globalThis.history = { replaceState() {} };
-    const { repository } = await import('../src/backend.js'), { google } = await import('../src/google.js'), { local } = await import('../src/storage.js');
-    const oldRepository = Object.getOwnPropertyDescriptors(repository), oldGoogle = Object.getOwnPropertyDescriptors(google), oldFile = local.file;
-    const oldImage = globalThis.Image, oldInterval = globalThis.setInterval, oldTimeout = globalThis.setTimeout;
+    const { auth, repository } = await import('../src/backend.js'), { google } = await import('../src/google.js'), { local } = await import('../src/storage.js');
+    const oldAuth = Object.getOwnPropertyDescriptors(auth), oldRepository = Object.getOwnPropertyDescriptors(repository), oldGoogle = Object.getOwnPropertyDescriptors(google), oldFile = local.file;
+    const oldImage = globalThis.Image, oldObserver = globalThis.IntersectionObserver, oldInterval = globalThis.setInterval, oldRandom = Math.random;
     const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL;
-    const requests = [], decoders = [], signals = [], releases = new Map();
-    let expire, created = 0;
-    globalThis.setInterval = callback => { intervals.push(callback); return 0; };
-    globalThis.setTimeout = (callback, delay, ...args) => delay === 8000 ? (expire = callback, 0) : oldTimeout(callback, delay, ...args);
-    globalThis.Image = class { decode() { return new Promise(resolve => decoders.push({ url: this.src, resolve })); } };
-    URL.createObjectURL = () => `blob:startup-${++created}`;
-    URL.revokeObjectURL = () => {};
+    globalThis.setInterval = () => 0; Math.random = () => 0;
+    globalThis.Image = class { decode() { decodeCalls++; return new Promise(() => {}); } };
+    globalThis.IntersectionObserver = class {
+      constructor(callback) { this.callback = callback; this.targets = new Set(); observer = this; }
+      observe(target) { this.targets.add(target); } unobserve(target) { this.targets.delete(target); } disconnect() { this.targets.clear(); }
+      show(id) { this.callback([...this.targets].filter(target => { const img = target.querySelector('img'); return (img.dataset.driveFile || img.dataset.file) === id; }).map(target => ({ target, isIntersecting: true }))); }
+    };
+    URL.createObjectURL = () => `blob:visible-${++created}`; URL.revokeObjectURL = () => {};
     const file = id => ({ id, name: `${id}.jpg`, type: 'image/jpeg', source: scenario.startsWith('local') ? 'local' : 'drive' });
     const a = file('a'), b = file('b'), recent = file('recent');
     if (scenario.endsWith('fallback')) a.thumbnail = { ...file('preview'), type: 'image/webp' };
-    const rows = [
-      { id: 'recent', kind: 'post', author_id: 'u1', created_at: '2026-02-01T00:00:00Z', data: { date: '2026-02-01', files: [recent] } },
-      { id: 'selected', kind: 'post', author_id: 'u1', created_at: '2026-01-01T00:00:00Z', data: { date: '2026-01-01', files: scenario.endsWith('gallery') || scenario.endsWith('archive') ? [] : [a, b] } },
-      { id: 'unrelated', kind: 'post', author_id: 'u1', created_at: '2025-01-01T00:00:00Z', data: { date: '2025-01-01', files: [file('unrelated')] } }
-    ];
-    Object.assign(repository, { members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => rows, notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01', homePhoto: scenario === 'empty' ? [] : scenario.endsWith('archive') ? [{ file: b, selected: false }, { file: a, selected: true }] : scenario.endsWith('gallery') ? [{ file: a }, { file: b }] : ['a', 'b'].map(fileId => ({ recordId: 'selected', fileId })) }), bucketList: async () => [], profiles: async () => [] });
+    const rows = [{ id: 'recent-post', kind: 'post', author_id: 'u1', created_at: '2026-02-01T00:00:00Z', data: { date: '2026-02-01', title: 'recent memory', files: [recent, file('offscreen')] } }];
+    Object.defineProperty(auth, 'user', { configurable: true, get: () => ({ id: 'u1', email: 'one@example.com' }) });
+    Object.assign(auth, { callback: async () => {}, takeProviderToken: () => null });
+    Object.assign(repository, { members: async () => [{}, {}], list: async () => rows, notificationReads: async () => [], coupleSettings: async () => ({ startDate: '2020-01-01', homePhoto: scenario === 'empty' ? [] : [{ file: a }, { file: b }] }), bucketItems: async () => [], profiles: async () => [] });
     Object.defineProperty(google, 'connected', { configurable: true, get: () => true });
     Object.assign(google, { prepare: async () => {}, events: async () => [], upcomingEvents: async () => [], image: async (id, signal) => {
       requests.push(id); signals.push(signal);
@@ -198,56 +210,47 @@ test('startup downloads and decodes all home photos before rendering, with bound
       return new Promise(resolve => releases.set(id, () => resolve(new Blob([id], { type: 'image/jpeg' }))));
     } });
     local.file = async id => { requests.push(id); return id === 'preview' ? undefined : { blob: new Blob([id], { type: 'image/jpeg' }) }; };
-    const tick = () => new Promise(resolve => oldTimeout(resolve, 0));
+    const tick = () => new Promise(resolve => setTimeout(resolve, 0));
     const until = async predicate => { for (let i = 0; i < 80 && !predicate(); i++) await tick(); assert.ok(predicate()); };
+    const click = dataset => listeners.get('click')({ target: { closest: () => ({ dataset }) } });
+    const currentHero = () => images.find(img => img.dataset.priority === 'high');
     try {
-      await import(`../src/app.js?startup-${scenario}`);
-      const expected = scenario === 'empty' ? ['recent'] : scenario.endsWith('archive') ? ['a', 'recent'] : scenario.endsWith('fallback') ? ['a', 'b', 'preview', 'recent'] : ['a', 'b', 'recent'];
-      await until(() => requests.length >= expected.length);
-      assert.deepEqual([...new Set(requests)].sort(), expected);
-      if (scenario === 'denied') {
-        await until(() => app.innerHTML.includes('museum-photo'));
-        assert.doesNotMatch(app.innerHTML, /access-error/);
-        return;
+      await import(`../src/app.js?visible-startup-${scenario}`);
+      await until(() => app.innerHTML.includes('recent memory'));
+      assert.match(app.innerHTML, /data-view="calendar"/);
+      assert.equal(decodeCalls, 0);
+      assert.ok(!requests.includes('b') && !requests.includes('recent') && !requests.includes('offscreen'));
+      if (scenario === 'empty') {
+        assert.match(app.innerHTML, /museum-photo-empty/); assert.equal(requests.length, 0);
+      } else {
+        await until(() => requests.includes('a'));
+        assert.deepEqual([...new Set(requests)], scenario.endsWith('fallback') ? ['preview', 'a'] : ['a']);
+        if (scenario === 'denied') await until(() => currentHero().status.textContent.includes('거부'));
+        else if (!scenario.startsWith('local')) {
+          assert.equal(currentHero().src, '');
+          if (scenario !== 'pending') { releases.get('a')(); await until(() => Boolean(currentHero().src)); }
+        }
+        if (scenario.startsWith('local') || !['pending', 'denied'].includes(scenario)) {
+          await until(() => Boolean(currentHero().src));
+          const img = currentHero();
+          assert.equal(img.hidden, true); // Browser image completion is also independent of navigation.
+          img.onload(); assert.equal(img.hidden, false); assert.equal(img.cover.hidden, true);
+        }
+        await click({ action: 'home-photo-next' });
+        await until(() => requests.includes('b'));
+        if (scenario === 'pending') assert.equal(signals[0].aborted, true);
+        assert.ok(!requests.includes('offscreen'));
       }
-      assert.match(app.innerHTML, /class="boot"/);
-      await intervals[0]();
-      assert.match(app.innerHTML, /class="boot"/);
-      if (scenario === 'timeout') {
-        expire();
-        await until(() => app.innerHTML.includes('museum-photo'));
-        assert.ok(signals.every(signal => signal.aborted));
-        for (const release of releases.values()) release();
-        await tick();
-        assert.equal(created, 0);
-        return;
-      }
+      observer.show('recent'); await until(() => requests.includes('recent'));
+      assert.ok(!requests.includes('offscreen'));
+      await click({ view: 'calendar' }); assert.match(app.innerHTML, /OUR SHARED DAYS/);
+      await click({ view: 'settings' }); assert.match(app.innerHTML, /MAKE OURSELVES AT HOME/);
       for (const release of releases.values()) release();
-      const imageCount = scenario === 'empty' ? 1 : scenario.endsWith('archive') ? 2 : 3;
-      await until(() => decoders.length === imageCount);
-      assert.match(app.innerHTML, /class="boot"/);
-      for (const decoder of decoders.slice(0, -1)) decoder.resolve();
       await tick();
-      assert.match(app.innerHTML, /class="boot"/);
-      decoders.at(-1).resolve();
-      await until(() => app.innerHTML.includes('museum-photo'));
-      assert.match(app.innerHTML, /src="blob:startup-/);
-      assert.doesNotMatch(app.innerHTML, /decoding="async" hidden/);
-      const hero = app.innerHTML.match(/<section class="museum-photo"[\s\S]*?<\/section>/)[0];
-      assert.doesNotMatch(hero, /open-post|open-comments/);
-      if (scenario === 'empty') assert.match(hero, /museum-photo-empty/);
-      if (scenario.endsWith('archive')) {
-        assert.match(hero, /data-(?:drive-file|file)="a"/);
-        assert.doesNotMatch(hero, /data-(?:drive-file|file)="b"/);
-      }
-      if (scenario.endsWith('fallback')) assert.doesNotMatch(app.innerHTML, /data-(?:drive-file|file)="preview"/);
-      const before = requests.length;
-      await listeners.get('click')({ target: { closest: () => ({ dataset: { action: 'home-photo-next' } }) } });
-      assert.equal(requests.length, before);
-      assert.match(app.innerHTML, /src="blob:startup-/);
+      assert.doesNotMatch(app.innerHTML, /access-error/);
     } finally {
-      Object.defineProperties(repository, oldRepository); Object.defineProperties(google, oldGoogle); local.file = oldFile;
-      globalThis.Image = oldImage; globalThis.setInterval = oldInterval; globalThis.setTimeout = oldTimeout;
+      Object.defineProperties(auth, oldAuth); Object.defineProperties(repository, oldRepository); Object.defineProperties(google, oldGoogle); local.file = oldFile;
+      globalThis.Image = oldImage; globalThis.IntersectionObserver = oldObserver; globalThis.setInterval = oldInterval; Math.random = oldRandom;
       URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke;
     }
   });

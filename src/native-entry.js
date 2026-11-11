@@ -12,7 +12,7 @@ const appBadge = registerPlugin('AppBadge');
 window.GEONJUKONG_NATIVE = {
   active: Capacitor.isNativePlatform(),
   setBadge: hasUnread => appBadge.set({ count: hasUnread ? 1 : 0 }),
-  pickMedia: Capacitor.getPlatform() === 'ios' ? () => pickOrderedMedia(mediaPicker, path => Capacitor.convertFileSrc(path)) : undefined,
+  pickMedia: ['ios', 'android'].includes(Capacitor.getPlatform()) ? entries => pickOrderedMedia(mediaPicker, path => Capacitor.convertFileSrc(path), entries) : undefined,
   onBack: handler => Capacitor.getPlatform() === 'android' ? App.addListener('backButton', handler) : undefined,
   exit: () => App.exitApp(),
   open: url => Browser.open({ url }),

@@ -182,6 +182,36 @@ test('only a gesture starting and ending on the backdrop dismisses; Escape uses 
   assert.equal(backs, 2);
 });
 
+test('backdrop touch drags are blocked without blocking dialog scrolling or photo swipes', () => {
+  const handlers = new Map(), options = new Map();
+  const editor = { addEventListener(type, handler, settings) { handlers.set(type, handler); options.set(type, settings); }, getBoundingClientRect: () => ({ left: 14, right: 376, top: 50, bottom: 700 }) };
+  installDialogDismissal(editor, () => {});
+  let prevented = 0;
+  const touch = (x, y, target = editor) => ({ target, touches: [{ clientX: x, clientY: y }], preventDefault() { prevented++; } });
+  assert.deepEqual(options.get('touchmove'), { passive: false });
+  for (const [x, y] of [[5, 300], [385, 300], [200, 20], [200, 730]]) {
+    handlers.get('touchstart')(touch(x, y));
+    // Keep blocking the gesture even after the finger enters the dialog.
+    handlers.get('touchmove')(touch(200, 300));
+  }
+  assert.equal(prevented, 4);
+  handlers.get('touchend')();
+  handlers.get('touchmove')(touch(5, 300));
+  assert.equal(prevented, 4);
+  handlers.get('touchstart')(touch(5, 300));
+  handlers.get('touchcancel')();
+  handlers.get('touchmove')(touch(5, 300));
+  assert.equal(prevented, 4);
+  for (const target of [editor, { className: 'attachments' }, { tagName: 'TEXTAREA' }]) {
+    handlers.get('touchstart')(touch(200, 300, target));
+    handlers.get('touchmove')(touch(5, 300, target));
+  }
+  assert.equal(prevented, 4);
+  handlers.get('touchstart')({ target: editor, touches: [] });
+  handlers.get('touchmove')(touch(5, 300));
+  assert.equal(prevented, 4);
+});
+
 test('mouse dragging advances one horizontal slide without vertical movement or opening the post', () => {
   const handlers = new Map();
   installGalleryDrag({ addEventListener: (type, handler) => handlers.set(type, handler) });

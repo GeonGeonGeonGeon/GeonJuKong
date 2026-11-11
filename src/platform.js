@@ -8,7 +8,7 @@ export const native = {
     if (hasUnread) await navigator.setAppBadge?.(); else await navigator.clearAppBadge?.();
   },
   get canPickMedia() { return this.active && typeof window.GEONJUKONG_NATIVE.pickMedia === 'function'; },
-  async pickMedia() { return window.GEONJUKONG_NATIVE.pickMedia(); },
+  async pickMedia(entries) { return window.GEONJUKONG_NATIVE.pickMedia(entries); },
   async onBack(handler) { return this.active ? window.GEONJUKONG_NATIVE.onBack?.(handler) : undefined; },
   async exit() { if (this.active) await window.GEONJUKONG_NATIVE.exit(); },
   get active() { return Boolean(window.GEONJUKONG_NATIVE?.active); },

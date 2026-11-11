@@ -12,34 +12,63 @@ let refreshPending;
 let providerToken;
 let googleWarning = '';
 let sessionGeneration = 0;
+let sessionController = new AbortController();
+function checkAborted(signal) {
+  if (signal?.aborted) throw signal.reason || Object.assign(new Error('요청이 취소되었습니다.'), { name: 'AbortError' });
+}
+async function limitedRequest(run, { signal } = {}) {
+  const controller = new AbortController();
+  const signals = [signal, sessionController.signal].filter(Boolean);
+  let timer, stop;
+  const cancelled = new Promise((_, reject) => {
+    stop = reason => { controller.abort(reason); reject(reason); };
+    timer = setTimeout(() => stop(Object.assign(new Error('서버 응답 시간이 초과됐어요. 다시 시도해 주세요.'), { name: 'TimeoutError', code: 'timeout', retryable: true })), 15000);
+  });
+  const abort = () => stop(Object.assign(new Error('로그인 세션이 종료되었거나 요청이 취소되었습니다.'), { name: 'AbortError', code: 'cancelled' }));
+  for (const source of signals) source.addEventListener('abort', abort, { once: true });
+  try {
+    if (signals.some(source => source.aborted)) abort();
+    // 본문 수신과 AbortSignal을 무시하는 전송도 유한하게 기다립니다.
+    return await Promise.race([Promise.resolve().then(() => { checkAborted(controller.signal); return run(controller.signal); }), cancelled]);
+  } finally {
+    clearTimeout(timer);
+    for (const source of signals) source.removeEventListener('abort', abort);
+  }
+}
 function setSession(value) { session = value; if (value) localStorage.setItem(SESSION_KEY, JSON.stringify(value)); else localStorage.removeItem(SESSION_KEY); }
 async function authRequest(path, body, generation = sessionGeneration) {
-  const response = await fetch(`${config.supabaseUrl}/auth/v1/${path}`, { method: 'POST', headers: { apikey: config.supabaseAnonKey, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const data = await response.json(); if (!response.ok) { const error = new Error(data.msg || data.error_description || '로그인에 실패했습니다.'); error.status = response.status; throw error; }
+  const data = await limitedRequest(async signal => {
+    const response = await fetch(`${config.supabaseUrl}/auth/v1/${path}`, { signal, method: 'POST', headers: { apikey: config.supabaseAnonKey, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await response.json(); if (!response.ok) { const error = new Error(data.msg || data.error_description || '로그인에 실패했습니다.'); error.status = response.status; throw error; }
+    return data;
+  });
   if (generation !== sessionGeneration) throw new Error('로그인 세션이 종료되었습니다.');
   if (data.provider_token) providerToken = data.provider_token;
   const { provider_token, provider_refresh_token, ...appSession } = data;
   setSession({ ...appSession, expires_at: Date.now() + data.expires_in * 1000 });
   if (provider_refresh_token) {
-    try { await googleRequest({ action: 'store', refresh_token: provider_refresh_token }); googleWarning = ''; }
-    catch { googleWarning = 'Google 지속 연결을 저장하지 못했습니다. google-auth 서버 배포와 네트워크를 확인한 뒤 다시 연결해 주세요.'; }
+    try { await googleRequest({ action: 'store', refresh_token: provider_refresh_token }, {}, data.access_token); if (generation === sessionGeneration) googleWarning = ''; }
+    catch { if (generation === sessionGeneration) googleWarning = 'Google 지속 연결을 저장하지 못했습니다. google-auth 서버 배포와 네트워크를 확인한 뒤 다시 연결해 주세요.'; }
   }
+  if (generation !== sessionGeneration) throw new Error('로그인 세션이 종료되었습니다.');
   return data;
 }
-async function accessToken() {
+async function accessToken(force = false) {
   if (!session) throw new Error('로그인이 필요합니다.');
-  if (session.expires_at < Date.now() + 60000) {
+  if (force || session.expires_at < Date.now() + 60000) {
     if (!refreshPending) {
       const generation = sessionGeneration;
-      refreshPending = authRequest('token?grant_type=refresh_token', { refresh_token: session.refresh_token }, generation).catch(error => { if (generation === sessionGeneration && (error.status === 400 || error.status === 401)) setSession(null); throw error; }).finally(() => { refreshPending = null; });
+      const pending = authRequest('token?grant_type=refresh_token', { refresh_token: session.refresh_token }, generation).catch(error => { if (generation === sessionGeneration && (error.status === 400 || error.status === 401)) setSession(null); throw error; }).finally(() => { if (refreshPending === pending) refreshPending = null; });
+      refreshPending = pending;
     }
     await refreshPending;
   }
+  if (!session) throw new Error('로그인 세션이 종료되었습니다.');
   return session.access_token;
 }
 export const auth = {
   get googleWarning() { return googleWarning; },
-  async googleToken() { return googleRequest({ action: 'token' }); },
+  async googleToken(_force, options = {}) { return googleRequest({ action: 'token' }, options); },
   get user() { return session?.user || null; },
   takeProviderToken() { const value = providerToken; providerToken = undefined; return value; },
   async callback(callbackUrl) {
@@ -74,29 +103,52 @@ export const auth = {
   async logout() {
     const access = session?.access_token;
     sessionGeneration++;
+    sessionController.abort();
+    sessionController = new AbortController();
+    refreshPending = null;
     providerToken = undefined;
     googleWarning = '';
     setSession(null);
     if (!access) return { remote: true };
     try {
-      const response = await fetch(`${config.supabaseUrl}/auth/v1/logout`, { method: 'POST', headers: { apikey: config.supabaseAnonKey, Authorization: `Bearer ${access}` } });
+      const response = await limitedRequest(signal => fetch(`${config.supabaseUrl}/auth/v1/logout`, { signal, method: 'POST', headers: { apikey: config.supabaseAnonKey, Authorization: `Bearer ${access}` } }));
       return { remote: response.ok };
     } catch { return { remote: false }; }
   }
 };
-async function googleRequest(body) {
-  const response = await fetch(`${config.supabaseUrl}/functions/v1/google-auth`, { method: 'POST', headers: { apikey: config.supabaseAnonKey, Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Google 지속 연결 서버를 확인한 뒤 다시 연결해 주세요.');
-  return data;
+async function authorizedRequest(url, options, signal, suppliedToken) {
+  const generation = sessionGeneration;
+  const access = suppliedToken || await accessToken();
+  checkAborted(signal);
+  if (generation !== sessionGeneration) throw new Error('로그인 세션이 종료되었습니다.');
+  const send = value => fetch(url, { ...options, signal, headers: { ...options.headers, Authorization: `Bearer ${value}` } });
+  let response = await send(access);
+  checkAborted(signal);
+  if (response.status === 401 && !suppliedToken) {
+    const value = await accessToken(session?.access_token === access);
+    checkAborted(signal);
+    response = await send(value);
+  }
+  return response;
+}
+async function googleRequest(body, options = {}, suppliedToken) {
+  return limitedRequest(async signal => {
+    const response = await authorizedRequest(`${config.supabaseUrl}/functions/v1/google-auth`, { method: 'POST', headers: { apikey: config.supabaseAnonKey, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, signal, suppliedToken);
+    const data = await response.json().catch(() => ({}));
+    checkAborted(signal);
+    if (!response.ok) throw Object.assign(new Error(data.error || 'Google 지속 연결 서버를 확인한 뒤 다시 연결해 주세요.'), { status: response.status, ...(data.code === 'timeout' ? { name: 'TimeoutError', code: 'timeout', retryable: true } : {}) });
+    return data;
+  }, options);
 }
 async function rest(path, options = {}) {
-  const response = await fetch(`${config.supabaseUrl}/rest/v1/${path}`, { ...options, headers: { apikey: config.supabaseAnonKey, Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...options.headers } });
-  if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.message || '공유 서버에 연결하지 못했습니다.'); }
-  return response.status === 204 ? null : response.json();
+  return limitedRequest(async signal => {
+    const response = await authorizedRequest(`${config.supabaseUrl}/rest/v1/${path}`, { ...options, headers: { apikey: config.supabaseAnonKey, 'Content-Type': 'application/json', Prefer: 'return=representation', ...options.headers } }, signal);
+    if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.message || '공유 서버에 연결하지 못했습니다.'); }
+    return response.status === 204 ? null : response.json();
+  }, options);
 }
 export const repository = {
-  async bucketItems() { return rest('bucket_items?select=*&order=created_at.asc,id.asc'); },
+  async bucketItems(options = {}) { return rest('bucket_items?select=*&order=created_at.asc,id.asc', options); },
   async saveBucketItem(userId, data, id, expectedVersion) {
     data = validateBucketItem(data);
     const filter = id ? `bucket_items?id=eq.${encodeURIComponent(id)}${expectedVersion ? `&updated_at=eq.${encodeURIComponent(expectedVersion)}` : ''}` : 'bucket_items';
@@ -108,7 +160,7 @@ export const repository = {
     const rows = await rest(`bucket_items?id=eq.${encodeURIComponent(id)}${expectedVersion ? `&updated_at=eq.${encodeURIComponent(expectedVersion)}` : ''}`, { method: 'DELETE' });
     if (!rows?.length) throw new Error('목표가 변경되었거나 삭제되었어요. 목록을 새로고침하고 다시 시도해 주세요.');
   },
-  async profiles() { return rest('member_profiles?select=user_id,email,data,updated_at'); },
+  async profiles(options = {}) { return rest('member_profiles?select=user_id,email,data,updated_at', options); },
   async saveProfile(userId, data) {
     data = validateProfile(data);
     const rows = await rest('member_profiles?on_conflict=user_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ user_id: userId, data }) });
@@ -125,21 +177,21 @@ export const repository = {
       throw error;
     }
   },
-  async coupleSettings() { const rows = await rest('couple_settings?id=eq.1&select=data'); return rows[0]?.data || {}; },
+  async coupleSettings(options = {}) { const rows = await rest('couple_settings?id=eq.1&select=data', options); return rows[0]?.data || {}; },
   async createCoupleSettings(data) { return rest('couple_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify({ id: 1, data }) }); },
   async updateCoupleDate(field, date) { return rest('rpc/update_couple_date', { method: 'POST', body: JSON.stringify({ field, date_value: date }) }); },
   async saveCoupleSettings(data) { return rest('couple_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ id: 1, data }) }); },
-  async notificationReads() { return rest('notification_reads?select=record_id,read_at'); },
+  async notificationReads(options = {}) { return rest('notification_reads?select=record_id,read_at', options); },
   async markNotificationRead(userId, recordId) { return rest('notification_reads?on_conflict=user_id,record_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ user_id: userId, record_id: recordId, read_at: new Date().toISOString() }) }); },
   async markNotificationsRead(userId, recordIds) { return rest('notification_reads?on_conflict=user_id,record_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(recordIds.map(record_id => ({ user_id: userId, record_id, read_at: new Date().toISOString() }))) }); },
   async saveCalendarNotice(userId, notice) {
     return rest('records?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify({ id: notice.id, author_id: userId, kind: 'event_notice', data: { text: notice.title, title: notice.title, date: notice.date, eventId: notice.eventId } }) });
   },
-  async members() { return rest('members?select=slot,email,display_name'); },
-  async list() {
+  async members(options = {}) { return rest('members?select=slot,email,display_name', options); },
+  async list(options = {}) {
     // 페이지를 끝까지 읽어 오래된 기록을 조용히 누락하지 않습니다.
     const all = []; let offset = 0;
-    while (true) { const page = await rest(`records?select=*&order=created_at.asc,id.asc&limit=500&offset=${offset}`); all.push(...page); if (page.length < 500) return all; offset += 500; }
+    while (true) { const page = await rest(`records?select=*&order=created_at.asc,id.asc&limit=500&offset=${offset}`, options); all.push(...page); if (page.length < 500) return all; offset += 500; }
   },
   async save(mode, userId, kind, data, existingId, expectedVersion) {
     validateRecord(kind, data);

@@ -33,6 +33,33 @@ test('preview counters distinguish downloaded bytes and cache hits', () => {
   assert.equal(after.milliseconds - before.milliseconds, 50);
 });
 
+test('a stalled image decoder falls back to the original and closes a late bitmap', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let finish, closed = 0, outcome = 'pending';
+  const previous = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = () => new Promise(resolve => { finish = resolve; });
+  t.after(() => { globalThis.createImageBitmap = previous; });
+  const pending = createThumbnail(new File(['original'], 'photo.jpg', { type: 'image/jpeg' })).then(value => { outcome = value; });
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(8000); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(outcome, null); await pending;
+  finish({ width: 640, height: 480, close() { closed++; } });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(closed, 1);
+});
+
+test('a stalled canvas encoder falls back to the original and releases the bitmap', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const previousBitmap = globalThis.createImageBitmap, previousDocument = globalThis.document;
+  let closed = 0, outcome = 'pending';
+  globalThis.createImageBitmap = async () => ({ width: 640, height: 480, close() { closed++; } });
+  globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {} }), toBlob() {} }) };
+  t.after(() => { globalThis.createImageBitmap = previousBitmap; globalThis.document = previousDocument; });
+  const pending = createThumbnail(new File(['original'], 'photo.jpg', { type: 'image/jpeg' })).then(value => { outcome = value; });
+  await new Promise(resolve => setImmediate(resolve)); t.mock.timers.tick(8000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(outcome, null); assert.equal(closed, 1); await pending;
+});
+
 test('video previews capture a bounded frame without changing the original and release the decoder URL', async () => {
   const oldDocument = globalThis.document, oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL;
   let canvas, decoder, released = 0, disposed = 0;

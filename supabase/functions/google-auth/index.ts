@@ -42,6 +42,7 @@ Deno.serve(async request => {
     let token;
     try { token = await refreshGoogle(refreshToken, clientId, clientSecret); }
     catch (error) {
+      if (error.code === 'timeout') return reply({ error: error.message, code: 'timeout' }, 504);
       if (error.invalidGrant) {
         if (body.action === 'token') await admin.from('google_credentials').delete().eq('user_id', user.id);
         return reply({ error: error.message }, 409);
@@ -54,5 +55,8 @@ Deno.serve(async request => {
       if (error) throw error;
     }
     return reply({ access_token: token.access_token, expires_in: token.expires_in });
-  } catch { return reply({ error: 'Google 지속 연결 서버를 확인한 뒤 재시도해 주세요.' }, 500); }
+  } catch (error) {
+    if (error.code === 'timeout') return reply({ error: error.message, code: 'timeout' }, 504);
+    return reply({ error: 'Google 지속 연결 서버를 확인한 뒤 재시도해 주세요.' }, 500);
+  }
 });

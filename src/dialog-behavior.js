@@ -76,12 +76,18 @@ export function focusReplyInput(editor, input) {
   };
 }
 export function installDialogDismissal(editor, back) {
-  let startedOutside = false;
+  let startedOutside = false, backdropTouch = false;
   const outside = event => {
     if (event.target !== editor) return false;
+    const point = event.touches?.[0] || event;
     const rect = editor.getBoundingClientRect();
-    return event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+    return point.clientX < rect.left || point.clientX > rect.right || point.clientY < rect.top || point.clientY > rect.bottom;
   };
+  editor.addEventListener('touchstart', event => { backdropTouch = outside(event); });
+  // The backdrop is outside the fixed body; cancel its pan explicitly on iOS.
+  editor.addEventListener('touchmove', event => { if (backdropTouch) event.preventDefault(); }, { passive: false });
+  editor.addEventListener('touchend', () => { backdropTouch = false; });
+  editor.addEventListener('touchcancel', () => { backdropTouch = false; });
   editor.addEventListener('pointerdown', event => { startedOutside = outside(event); });
   editor.addEventListener('click', event => {
     if (startedOutside && outside(event)) { event.preventDefault(); back(); }

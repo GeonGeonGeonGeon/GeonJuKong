@@ -24,7 +24,9 @@ test('체험 모드에서 상대방 일정과 댓글 알림의 읽음 상태를 
     await import('../src/app.js?demo-notifications');
     for (let i = 0; i < 50 && !app.innerHTML.includes('notification-dot'); i++) await new Promise(resolve => setTimeout(resolve, 1));
     await click({ action: 'notice-list' });
-    assert.match(editor.innerHTML, /새 댓글/); assert.match(editor.innerHTML, /새 일정/); assert.doesNotMatch(editor.innerHTML, /Own event/);
+    assert.match(editor.innerHTML, /data-id="comment"><strong>[^<]+님이 댓글을 달았습니다\.<\/strong><span>Post · /);
+    assert.match(editor.innerHTML, /data-id="event"><strong>[^<]+님이 일정을 등록했습니다\.<\/strong><span>Event · /);
+    assert.doesNotMatch(editor.innerHTML, /Own event/);
     await click({ action: 'notice-open', id: 'event' });
     assert.match(app.innerHTML, /2027년/); assert.match(app.innerHTML, /3월/);
     assert.deepEqual(JSON.parse(values.get('geonjukong-demo-notification-reads')), [{ user_id: 'demo-me', record_id: 'event' }]);
@@ -33,8 +35,10 @@ test('체험 모드에서 상대방 일정과 댓글 알림의 읽음 상태를 
     assert.doesNotMatch(app.innerHTML, /notification-dot/);
     await listeners.get('change')({ target: { id: 'demo-person', value: 'demo-partner' } });
     await click({ action: 'notice-list' }); assert.match(editor.innerHTML, /모두 읽음/);
+    assert.match(editor.innerHTML, /data-id="post"><strong>[^<]+님이 게시글을 올렸습니다\.<\/strong><span>Post · /);
     await click({ action: 'notice-read-all' });
     assert.doesNotMatch(app.innerHTML, /notification-dot/); assert.doesNotMatch(editor.innerHTML, /모두 읽음/);
+    assert.match(editor.innerHTML, /role="status">모든 알림을 읽었어요./);
     assert.deepEqual(JSON.parse(values.get('geonjukong-demo-notification-reads')).filter(r => r.user_id === 'demo-partner').map(r => r.record_id).sort(), ['mine', 'post']);
   } finally { globalThis.setInterval = previousInterval; }
 });

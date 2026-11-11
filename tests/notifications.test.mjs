@@ -22,11 +22,11 @@ test('댓글·답글과 일정 알림을 열고 일정 알림 저장 실패를 �
   const comment = { id: 'comment', kind: 'comment', author_id: 'u2', created_at: '2026-01-02T00:00:00Z', data: { postId: 'post', text: 'comment text' } };
   const reply = { id: 'reply', kind: 'comment', author_id: 'u2', created_at: '2026-01-03T00:00:00Z', data: { postId: 'post', replyTo: 'comment', text: 'reply text' } };
   const eventNotice = { id: 'notice', kind: 'event_notice', author_id: 'u2', created_at: '2026-01-04T00:00:00Z', data: { title: 'Partner event', text: 'Partner event', date: '2027-02-12', eventId: 'event2' } };
-  const rows = [post, comment, reply, eventNotice]; let attempts = 0, failBulk = true;
+  const rows = [post, comment, reply, eventNotice]; let attempts = 0, failBulk = true, bulkCalls = 0, finishBulk;
   Object.assign(repository, {
     members: async () => [{ email: 'one@example.com' }, { email: 'two@example.com' }], list: async () => [...rows], readAt: async () => [], notificationReads: async () => reads.map(record_id => ({ record_id })), coupleSettings: async () => ({}),
     markNotificationRead: async (_user, id) => { reads.push(id); },
-    markNotificationsRead: async (_user, ids) => { if (failBulk) throw new Error('읽음 저장 실패'); reads.push(...ids); },
+    markNotificationsRead: async (_user, ids) => { bulkCalls++; await new Promise(resolve => { finishBulk = resolve; }); if (failBulk) throw new Error('읽음 저장 실패'); reads.push(...ids); },
     saveCalendarNotice: async (user, notice) => { attempts++; if (attempts === 1) throw new Error('offline'); rows.push({ id: notice.id, kind: 'event_notice', author_id: user, data: { title: notice.title, date: notice.date, text: notice.title, eventId: notice.eventId }, created_at: new Date().toISOString() }); }
   });
   google.prepare = async () => {}; google.restore = async () => {}; google.events = async () => [];
@@ -38,7 +38,9 @@ test('댓글·답글과 일정 알림을 열고 일정 알림 저장 실패를 �
     for (let i = 0; i < 50 && !app.innerHTML.includes('notification-dot'); i++) await new Promise(resolve => setTimeout(resolve, 1));
     assert.match(app.innerHTML, /notification-dot/);
     await click({ action: 'notice-list' });
-    assert.match(editor.innerHTML, /새 댓글/); assert.match(editor.innerHTML, /새 답글/); assert.match(editor.innerHTML, /새 일정/);
+    assert.match(editor.innerHTML, /data-id="comment"><strong>짝꿍님이 댓글을 달았습니다\.<\/strong><span>Our post · /);
+    assert.match(editor.innerHTML, /data-id="reply"><strong>짝꿍님이 답글을 달았습니다\.<\/strong><span>Our post · /);
+    assert.match(editor.innerHTML, /data-id="notice"><strong>짝꿍님이 일정을 등록했습니다\.<\/strong><span>Partner event · /);
     assert.doesNotMatch(editor.innerHTML, /data-id="post"/);
     await click({ action: 'notice-open', id: 'reply' });
     assert.deepEqual(reads, ['reply']); assert.match(editor.innerHTML, /Our post/); assert.match(editor.innerHTML, /reply text/);
@@ -58,10 +60,28 @@ test('댓글·답글과 일정 알림을 열고 일정 알림 저장 실패를 �
     await listeners.get('submit')({ target: form, preventDefault() {} });
     assert.equal(attempts, 2);
     assert.equal(values.has('geonjukong-pending-calendar-notices:u1'), false);
-    await click({ action: 'notice-list' }); await click({ action: 'notice-read-all' });
+    await click({ action: 'notice-list' });
+    const failedRead = click({ action: 'notice-read-all' });
+    for (let i = 0; i < 50 && !finishBulk; i++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.match(editor.innerHTML, /data-action="notice-read-all" disabled aria-busy="true">읽음 처리 중…/);
+    assert.match(editor.innerHTML, /role="status">알림을 읽음 처리하고 있어요/);
+    assert.match(editor.innerHTML, /notification-item unread/);
+    await click({ action: 'notice-read-all' });
+    assert.equal(bulkCalls, 1);
+    finishBulk(); await failedRead;
     assert.match(toast.textContent, /읽음 저장 실패/); assert.match(app.innerHTML, /notification-dot/);
-    failBulk = false; await click({ action: 'notice-read-all' });
+    assert.match(editor.innerHTML, /role="alert">읽음 처리하지 못했어요. 다시 시도해 주세요./);
+    assert.match(editor.innerHTML, /notification-item unread/);
+    assert.doesNotMatch(editor.innerHTML, /disabled|aria-busy/);
+    failBulk = false; finishBulk = null;
+    const successfulRead = click({ action: 'notice-read-all' });
+    for (let i = 0; i < 50 && !finishBulk; i++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(bulkCalls, 2);
+    assert.match(editor.innerHTML, /읽음 처리 중…/);
+    finishBulk(); await successfulRead;
     assert.deepEqual(reads, ['reply', 'notice', 'comment']); assert.doesNotMatch(app.innerHTML, /notification-dot/);
     assert.doesNotMatch(editor.innerHTML, /모두 읽음/);
+    assert.match(editor.innerHTML, /role="status">모든 알림을 읽었어요./);
+    assert.doesNotMatch(editor.innerHTML, /notification-item unread|읽음 처리 중|role="alert"/);
   } finally { globalThis.setInterval = oldInterval; globalThis.FormData = oldFormData; }
 });

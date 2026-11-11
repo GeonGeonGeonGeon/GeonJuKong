@@ -64,7 +64,8 @@ test('individual diary cards keep every post, search results, detail actions and
       assert.match(editor.innerHTML, /둘이 나누는 이야기/); assert.match(editor.innerHTML, /댓글 남기기/);
       await click({ action: 'edit', id: mine.id });
       assert.match(editor.innerHTML, /<h2 id="dialog-title">일기 수정<\/h2>/);
-      assert.match(editor.innerHTML, /type="submit" class="primary">일기 수정 저장<\/button>/);
+      assert.doesNotMatch(editor.innerHTML, /type="submit"/);
+      assert.match(editor.innerHTML, /수정하면 자동으로 저장돼요/);
       await click({ action: 'close' });
     });
     await t.test('shared forms and other tabs retain their existing copy outside the diary tab', async () => {
@@ -84,7 +85,8 @@ test('individual diary cards keep every post, search results, detail actions and
         assert.match(editor.innerHTML, /data-action="delete"[^>]*>삭제<\/button>/);
         await click({ action: 'edit', id: mine.id });
         assert.match(editor.innerHTML, /<h2 id="dialog-title">추억 남기기<\/h2>/);
-        assert.match(editor.innerHTML, /type="submit" class="primary">수정 저장<\/button>/);
+        assert.doesNotMatch(editor.innerHTML, /type="submit"/);
+        assert.match(editor.innerHTML, /수정하면 자동으로 저장돼요/);
         await click({ action: 'close' });
       }
       await click({ action: 'day', date: mine.data.date }); assert.match(app.innerHTML, /<h3>이날의 추억<\/h3>/);

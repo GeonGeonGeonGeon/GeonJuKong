@@ -46,6 +46,8 @@ test('calendar thumbnails, ordered attachment editing, inline videos and feature
     assert.match(draft.innerHTML, /media-order[^>]*>1<\/span>/);
     assert.match(draft.innerHTML, /media-order[^>]*>2<\/span>/);
     const third = new File(['third'], 'third.jpg', { type: 'image/jpeg' });
+    third.pickerUri = 'content://media/picker/third';
+    third.pickerDevice = 'this-device';
     const fourth = new File(['fourth'], 'fourth.png', { type: 'image/png' });
     choose([third]); choose([fourth]);
     assert.match(draft.innerHTML, /media-order[^>]*>4<\/span>/);
@@ -66,6 +68,8 @@ test('calendar thumbnails, ordered attachment editing, inline videos and feature
     const updated = rows.get('post');
     assert.deepEqual(updated.data.files.map(file => file.name), ['old-b.jpg', 'fourth.png', 'third.jpg', 'clip.mp4']);
     assert.equal(updated.data.files[0].id, 'old-b');
+    assert.equal(updated.data.files[2].pickerUri, third.pickerUri);
+    assert.equal(updated.data.files[2].pickerDevice, third.pickerDevice);
     assert.equal(blobs.size, 3);
     await click({ view: 'memories' });
     assert.match(app.innerHTML, /<video controls playsinline preload="metadata" data-file=/);

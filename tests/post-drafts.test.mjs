@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPostDraft, readPostDraft } from '../src/post-drafts.js';
+import { googleEvent } from '../src/core.js';
 
 function device() {
   const values = new Map(), blobs = new Map();
@@ -19,15 +20,20 @@ test('device drafts isolate users, modes and create/edit targets and retain orde
   for (const [index, owner] of scopes.entries()) assert.equal(readPostDraft(owner, d.storage).fields.title, String(index));
   const draft = createPostDraft(scopes[3], d);
   const existing = { key: 'saved:photo', metadata: { id: 'original', source: 'drive', name: 'saved.jpg', type: 'image/jpeg', thumbnail: { id: 'thumb' } } };
-  draft.capture(fields, [{ key: 'video', file: new File(['movie'], 'video.mov', { type: 'video/quicktime', lastModified: 123 }) }, existing], 'original-version');
+  const video = Object.assign(new File(['movie'], 'video.mov', { type: 'video/quicktime', lastModified: 123 }), { pickerUri: 'content://media/picker/video', pickerDevice: 'this-device' });
+  draft.capture(fields, [{ key: 'video', file: video }, existing], 'original-version');
   const restored = await createPostDraft(scopes[3], d).restore();
   assert.deepEqual(restored.fields, fields); assert.equal(restored.version, 'original-version');
   assert.equal(await restored.entries[0].file.text(), 'movie');
   assert.equal(restored.entries[0].file.name, 'video.mov'); assert.equal(restored.entries[0].file.lastModified, 123);
+  assert.equal(restored.entries[0].file.pickerUri, video.pickerUri);
+  assert.equal(restored.entries[0].file.pickerDevice, video.pickerDevice);
   assert.deepEqual(restored.entries[1], existing); assert.deepEqual(restored.missing, []);
   const { createPostDraft: afterReload } = await import('../src/post-drafts.js?new-page');
   const persisted = await afterReload(scopes[3], d).restore();
   assert.equal(await persisted.entries[0].file.text(), 'movie'); assert.deepEqual(persisted.entries[1], existing);
+  assert.equal(persisted.entries[0].file.pickerUri, video.pickerUri);
+  assert.equal(persisted.entries[0].file.pickerDevice, video.pickerDevice);
   await draft.discard();
   assert.equal(readPostDraft(scopes[3], d.storage), null); assert.equal(d.blobs.size, 0);
   assert.equal(readPostDraft(scopes[4], d.storage).fields.title, '4');
@@ -93,7 +99,7 @@ test('app autosaves, restores and discards only post forms across navigation, ac
     if (!tag) return;
     const attr = name => tag[1].match(new RegExp(`data-${name}="([^"]*)"`))?.[1] || '';
     const elements = {};
-    for (const name of ['date', 'title', 'text', 'time', 'postId']) {
+    for (const name of ['date', 'title', 'text', 'time', 'postId', 'endDate', 'endTime', 'target']) {
       const escaped = value.match(new RegExp(`<input[^>]*name="${name}"[^>]*value="([^"]*)"`))?.[1] ?? (name === 'text' ? value.match(/<textarea[^>]*name="text"[^>]*>([\s\S]*?)<\/textarea>/)?.[1] : '') ?? '';
       elements[name] = { name, value: escaped.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&') };
     }
@@ -116,7 +122,7 @@ test('app autosaves, restores and discards only post forms across navigation, ac
   const { google } = await import('../src/google.js');
   const originals = [local, auth, repository, google].map(object => Object.getOwnPropertyDescriptors(object));
   let saveError = false, listError = false, failRefreshAfterSave = false, saves = 0;
-  Object.assign(local, d.files, { list: async () => { if (listError) throw new Error('reload failed'); return [...rows.values()]; }, put: async value => rows.set(value.id, value), putIfVersion: async (value, version) => { if ((rows.get(value.id)?.updated_at || rows.get(value.id)?.created_at) !== version) return false; rows.set(value.id, value); return true; } });
+  Object.assign(local, d.files, { list: async () => { if (listError) throw new Error('reload failed'); return [...rows.values()]; }, put: async value => rows.set(value.id, value), remove: async id => rows.delete(id), putIfVersion: async (value, version) => { if ((rows.get(value.id)?.updated_at || rows.get(value.id)?.created_at) !== version) return false; rows.set(value.id, value); return true; } });
   Object.defineProperty(auth, 'user', { configurable: true, get: () => liveUser });
   auth.callback = async () => {}; auth.logout = async () => { liveUser = null; return { remote: true }; };
   const save = repository.save;
@@ -193,18 +199,135 @@ test('app autosaves, restores and discards only post forms across navigation, ac
       saveError = false; await submit(); assert.equal(d.blobs.size, count); assert.equal(readPostDraft(scope('demo-me')), null);
       assert.equal(readPostDraft(scope('demo-partner')).fields.title, 'Partner draft');
     });
-    await t.test('edit versions and saved attachments survive restore, and foreign post editing stays denied', async () => {
+    await t.test('a stalled preview releases the save form and retry reuses the original while retaining the diary draft', async st => {
+      st.mock.timers.enable({ apis: ['setTimeout'] });
+      const previousBitmap = globalThis.createImageBitmap;
+      globalThis.createImageBitmap = () => new Promise(() => {});
+      try {
+        await click({ action: 'new', kind: 'post' }); fill();
+        form.elements.files.files = [new File(['original'], 'stalled-preview.jpg', { type: 'image/jpeg' })];
+        listeners.get('change')({ target: form.elements.files });
+        saveError = true;
+        const saving = submit(); await new Promise(resolve => setImmediate(resolve));
+        assert.equal(form.inert, true); assert.equal(form.uploadedFiles.size, 1);
+        const originalId = [...form.uploadedFiles.values()][0].id;
+        assert.equal(readPostDraft(scope('demo-me')).attachments[0].metadata.id, originalId);
+        st.mock.timers.tick(8000); const failed = await saving;
+        assert.equal(editor.open, true); assert.equal(failed.inert, false);
+        assert.equal(failed.querySelector('[type="submit"]').disabled, false);
+        assert.equal(failed.elements.text.value, fields.text); assert.match(failed.error.textContent, /save failed/);
+        saveError = false; await submit();
+        assert.equal(editor.open, false); assert.equal(readPostDraft(scope('demo-me')), null);
+        assert.ok([...rows.values()].some(value => value.data.files?.[0]?.id === originalId));
+      } finally { globalThis.createImageBitmap = previousBitmap; saveError = false; }
+    });
+    await t.test('edits save without submitting, retain versions and attachment order, and reject stale or foreign writes', async () => {
       await click({ action: 'edit', id: 'owned' }); input('title', 'Editing');
+      assert.doesNotMatch(editor.innerHTML, /type="submit"/);
+      assert.match(editor.innerHTML, /data-action="close">닫기/);
+      for (let i = 0; i < 100 && rows.get('owned').data.title !== 'Editing'; i++) await new Promise(resolve => setTimeout(resolve, 5));
+      assert.equal(rows.get('owned').data.title, 'Editing'); assert.equal(editor.open, true);
+      assert.equal(form.inert, undefined);
       form.elements.files.files = [new File(['video'], 'new.mov', { type: 'video/quicktime' })]; listeners.get('change')({ target: form.elements.files });
       await click({ action: 'media-earlier', index: '1' }); await back();
-      await click({ action: 'edit', id: 'owned' }); await click({ action: 'draft-restore' });
-      assert.equal(form.dataset.version, '2026-11-01T01:00:00Z'); assert.equal(form.elements.title.value, 'Editing');
+      assert.equal(editor.open, false); assert.equal(readPostDraft(scope('demo-me', 'demo', 'owned')), null);
+      assert.deepEqual(rows.get('owned').data.files.map(file => file.name), ['new.mov', 'saved.png']);
+      await click({ action: 'edit', id: 'owned' });
+      const version = rows.get('owned').updated_at;
+      assert.equal(form.dataset.version, version); assert.equal(form.elements.title.value, 'Editing');
       assert.ok(media.innerHTML.indexOf('new.mov') < media.innerHTML.indexOf('saved.png'));
-      rows.set(row.id, { ...row, updated_at: '2026-11-01T02:00:00Z' });
+      rows.set(row.id, { ...rows.get(row.id), updated_at: '2099-11-01T02:00:00Z' });
+      input('title', 'Conflicting edit');
       const conflict = await submit(); assert.match(conflict.error.textContent, /수정되었거나 삭제/);
-      assert.equal(form.elements.title.value, 'Editing'); assert.equal(readPostDraft(scope('demo-me', 'demo', 'owned')).version, '2026-11-01T01:00:00Z');
-      await click({ action: 'draft-discard' }); assert.equal(form.elements.title.value, 'Owned'); assert.equal(readPostDraft(scope('demo-me', 'demo', 'owned')), null);
+      assert.equal(form.elements.title.value, 'Conflicting edit'); assert.equal(readPostDraft(scope('demo-me', 'demo', 'owned')).version, version);
+      await click({ action: 'draft-discard' }); assert.equal(form.elements.title.value, 'Editing'); assert.equal(readPostDraft(scope('demo-me', 'demo', 'owned')), null);
       await click({ action: 'close' }); await click({ action: 'edit', id: 'foreign' }); assert.equal(editor.open, false); assert.match(toast.textContent, /작성자만/);
+    });
+    await t.test('typing during a delayed save persists the latest text and refreshes the conflict version', async () => {
+      await click({ action: 'refresh' }); await click({ action: 'edit', id: 'owned' });
+      const previousSave = repository.save, versions = [];
+      let finish;
+      repository.save = async (...args) => {
+        versions.push(args[5]);
+        if (versions.length === 1) await new Promise(resolve => { finish = resolve; });
+        return previousSave(...args);
+      };
+      try {
+        input('text', 'First update');
+        for (let i = 0; i < 100 && !finish; i++) await new Promise(resolve => setTimeout(resolve, 5));
+        assert.ok(finish); assert.equal(form.inert, undefined);
+        input('text', 'Second update'); input('text', 'Latest update');
+        const closing = click({ action: 'close' }); finish(); await closing;
+        assert.equal(versions.length, 2); assert.notEqual(versions[0], versions[1]);
+        assert.equal(rows.get('owned').data.text, 'Latest update'); assert.equal(editor.open, false);
+        assert.equal(readPostDraft(scope('demo-me', 'demo', 'owned')), null);
+      } finally { repository.save = previousSave; }
+    });
+    await t.test('invalid and failed autosaves keep the editor open, and retry saves retained edits', async () => {
+      await click({ action: 'edit', id: 'owned' });
+      input('title', ''); await back();
+      assert.equal(editor.open, true); assert.match(form.error.textContent, /제목/);
+      assert.equal(rows.get('owned').data.title, 'Editing');
+      input('title', 'Recovered'); saveError = true; await click({ action: 'close' });
+      assert.equal(editor.open, true); assert.match(form.error.textContent, /save failed/);
+      assert.equal(form.inert, false); assert.equal(form.elements.title.value, 'Recovered');
+      saveError = false; await click({ action: 'retry-record-save' });
+      assert.equal(rows.get('owned').data.title, 'Recovered'); assert.equal(editor.open, true);
+      await click({ action: 'close' }); assert.equal(editor.open, false);
+    });
+    await t.test('existing events save title, target and time changes on input or change without submitting', async () => {
+      const event = { id: 'auto-event', kind: 'event', author_id: 'demo-me', created_at: row.created_at, data: { title: 'Original event', date: '2026-11-01', time: '', target: 'shared' } };
+      rows.set(event.id, event); await click({ action: 'refresh' });
+      await click({ action: 'edit-event', id: event.id }); assert.doesNotMatch(editor.innerHTML, /type="submit"/);
+      input('title', 'Updated event'); input('time', '09:00'); input('endTime', '10:00');
+      form.elements.target.value = 'member-2'; await listeners.get('change')({ target: form.elements.target });
+      await back(); assert.equal(editor.open, false);
+      assert.equal(rows.get(event.id).data.title, 'Updated event');
+      assert.equal(rows.get(event.id).data.target, 'member-2'); assert.equal(rows.get(event.id).data.time, '09:00');
+      await click({ action: 'edit-event', id: event.id }); input('title', 'Pending before deletion');
+      const previousConfirm = globalThis.confirm; globalThis.confirm = () => true;
+      const previousRemove = repository.remove;
+      try {
+        repository.remove = async () => { throw new Error('delete failed'); };
+        await click({ action: 'delete-event', id: event.id }); assert.equal(editor.open, true);
+        input('title', 'Recovered after delete failure'); await back();
+        assert.equal(rows.get(event.id).data.title, 'Recovered after delete failure');
+        repository.remove = previousRemove;
+        await click({ action: 'edit-event', id: event.id }); input('title', 'Pending before deletion');
+        await click({ action: 'delete-event', id: event.id });
+      } finally { globalThis.confirm = previousConfirm; repository.remove = previousRemove; }
+      assert.equal(rows.has(event.id), false);
+    });
+    await t.test('live event edits use Google Calendar and retain failed edits for retry', async () => {
+      const previousEvents = google.events, previousSave = google.saveEvent;
+      const connected = Object.getOwnPropertyDescriptor(google, 'connected');
+      let remote = { id: 'google-autosave', summary: 'Google event', start: { date: '2026-11-01' }, end: { date: '2026-11-02' }, created: row.created_at };
+      const calls = []; let failing = false;
+      Object.defineProperty(google, 'connected', { configurable: true, get: () => true });
+      google.events = async () => [googleEvent(remote)];
+      google.saveEvent = async (data, id) => {
+        calls.push({ data, id }); if (failing) throw new Error('calendar offline');
+        remote = { ...remote, summary: data.title, description: data.text, start: { date: data.date }, end: { date: '2026-11-03' }, extendedProperties: { shared: { geonjukongTarget: data.target } } };
+        return remote;
+      };
+      try {
+        liveUser = { id: 'demo-me', email: 'one' }; await link('com.geonjukong.couple://auth/callback');
+        await click({ action: 'refresh' });
+        await click({ action: 'edit-event', id: remote.id }); assert.doesNotMatch(editor.innerHTML, /type="submit"/);
+        input('title', 'Google updated'); input('text', 'Updated memo'); input('date', '2026-11-02'); input('endDate', '2026-11-02');
+        form.elements.target.value = 'member-1'; await listeners.get('change')({ target: form.elements.target });
+        await back(); assert.equal(editor.open, false); assert.equal(calls.length, 1);
+        assert.equal(calls[0].id, remote.id); assert.equal(calls[0].data.title, 'Google updated');
+        assert.equal(calls[0].data.date, '2026-11-02'); assert.equal(calls[0].data.target, 'member-1');
+        await click({ action: 'edit-event', id: remote.id }); assert.equal(form.elements.title.value, 'Google updated');
+        failing = true; input('text', 'Retained memo'); await back();
+        assert.equal(editor.open, true); assert.match(form.error.textContent, /calendar offline/);
+        failing = false; await click({ action: 'retry-record-save' });
+        assert.equal(remote.description, 'Retained memo'); await back(); assert.equal(editor.open, false);
+      } finally {
+        await click({ action: 'logout' }); google.events = previousEvents; google.saveEvent = previousSave;
+        Object.defineProperty(google, 'connected', connected);
+      }
     });
     await t.test('successful save clears only its draft even when the subsequent list refresh fails', async () => {
       await click({ action: 'new', kind: 'post' }); fill(); const before = saves;

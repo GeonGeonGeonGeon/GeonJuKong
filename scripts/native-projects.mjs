@@ -38,11 +38,35 @@ export async function configureNativeProject(root, platform) {
     await writeFile(storyboard, picker.storyboard);
     const plist=new URL('ios/App/App/Info.plist',root);await writeFile(plist,iosCallbackPlist(await readFile(plist,'utf8')));
     const privacy=new URL('ios/App/PrivacyInfo.xcprivacy',root);
-    try { await access(privacy); } catch { await writeFile(privacy,'<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>NSPrivacyAccessedAPITypes</key><array><dict><key>NSPrivacyAccessedAPIType</key><string>NSPrivacyAccessedAPICategoryFileTimestamp</string><key>NSPrivacyAccessedAPITypeReasons</key><array><string>C617.1</string></array></dict></array></dict></plist>'); }
+    let privacySource = '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>NSPrivacyAccessedAPITypes</key><array><dict><key>NSPrivacyAccessedAPIType</key><string>NSPrivacyAccessedAPICategoryFileTimestamp</string><key>NSPrivacyAccessedAPITypeReasons</key><array><string>C617.1</string></array></dict></array></dict></plist>';
+    try { privacySource = await readFile(privacy, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await writeFile(privacy, iosMediaPickerPrivacy(privacySource));
+    const project = new URL('ios/App/App.xcodeproj/project.pbxproj', root);
+    await writeFile(project, iosMediaPickerPrivacyProject(await readFile(project, 'utf8')));
     const dir=new URL('ios/App/App/Assets.xcassets/AppIcon.appiconset/',root);await access(dir);
     await writeFile(new URL('AppIcon-512@2x.png',dir),png(1024));
     await writeFile(new URL('Contents.json',dir),JSON.stringify({images:[{filename:'AppIcon-512@2x.png',idiom:'universal',platform:'ios',size:'1024x1024'}],info:{author:'xcode',version:1}},null,2));
   }
+}
+
+export function iosMediaPickerPrivacy(xml) {
+  if (xml.includes('<string>NSPrivacyAccessedAPICategoryUserDefaults</string>')) return xml;
+  const entry = '<dict><key>NSPrivacyAccessedAPIType</key><string>NSPrivacyAccessedAPICategoryUserDefaults</string><key>NSPrivacyAccessedAPITypeReasons</key><array><string>CA92.1</string></array></dict>';
+  const list = /(<key>NSPrivacyAccessedAPITypes<\/key>\s*)<array\s*(\/>|>)/;
+  if (list.test(xml)) return xml.replace(list, (_, key, end) => `${key}<array>${entry}${end === '/>' ? '</array>' : ''}`);
+  if (xml.includes('<key>NSPrivacyAccessedAPITypes</key>') || !/<\/dict>\s*<\/plist>/.test(xml)) throw new Error('iOS 개인정보 API 선언 형식을 확인해 주세요.');
+  return xml.replace(/<\/dict>\s*<\/plist>/, `<key>NSPrivacyAccessedAPITypes</key><array>${entry}</array></dict></plist>`);
+}
+
+export function iosMediaPickerPrivacyProject(project) {
+  if (project.includes('PrivacyInfo.xcprivacy in Resources')) return project;
+  const resources = /(isa = PBXResourcesBuildPhase;[\s\S]*?files = \()/;
+  if (!project.includes('/* End PBXBuildFile section */') || !project.includes('/* End PBXFileReference section */') || !resources.test(project)) throw new Error('iOS 개인정보 선언을 포함할 Resources 단계를 찾지 못했어요.');
+  const file = 'A9370BC3C2E84F02A7B4D931', build = 'A9370BC3C2E84F02A7B4D932';
+  return project
+    .replace('/* End PBXBuildFile section */', `\t\t${build} /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = ${file} /* PrivacyInfo.xcprivacy */; };\n/* End PBXBuildFile section */`)
+    .replace('/* End PBXFileReference section */', `\t\t${file} /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };\n/* End PBXFileReference section */`)
+    .replace(resources, `$1\n\t\t\t\t${build} /* PrivacyInfo.xcprivacy in Resources */,`);
 }
 
 export function iosMediaPickerProject(delegate, storyboard, source) {

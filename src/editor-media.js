@@ -6,6 +6,7 @@ const types = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: '
 export function selectedMediaFile(file) {
   const type = file.type === 'image/jpg' ? 'image/jpeg' : file.type || types[file.name.split('.').pop().toLowerCase()];
   const selected = type && type !== file.type ? new File([file], file.name, { type, lastModified: file.lastModified }) : file;
+  if (file.pickerUri) { selected.pickerUri = file.pickerUri; selected.pickerDevice = file.pickerDevice; }
   safeFileType(selected);
   return selected;
 }
@@ -31,12 +32,35 @@ export function createMediaDraft(existingFiles = []) {
       const selected = Array.from(files, selectedMediaFile);
       let added = 0;
       for (const file of selected) {
-        const key = `selected:${file.name}:${file.size}:${file.lastModified}:${file.type}`;
+        const key = file.pickerUri ? `selected:picker:${file.pickerDevice}:${file.pickerUri}` : `selected:${file.name}:${file.size}:${file.lastModified}:${file.type}`;
         if (items.some(item => item.key === key)) continue;
         items.push({ key, file, url: URL.createObjectURL(file) });
         added++;
       }
       return added;
+    },
+    applyPickerSelection({ files, selectedUris, preselectedUris = [], pickerDevice }) {
+      if (!selectedUris) return this.addFiles(files);
+      const selected = new Map(Array.from(files, selectedMediaFile).map(file => [file.pickerUri, file]));
+      const uriOf = item => { const file = item.file || item.metadata; return file.pickerDevice === pickerDevice ? file.pickerUri : undefined; };
+      const previous = new Map(items.filter(item => uriOf(item)).map(item => [uriOf(item), item]));
+      for (const uri of selectedUris) {
+        if (!previous.has(uri) && !selected.has(uri)) throw new Error('선택한 사진을 찾지 못했어요. 다시 선택해 주세요.');
+      }
+      const managed = new Set([...preselectedUris, ...selectedUris]);
+      // Keep imported attachments and originals this device could not preselect.
+      const first = items.findIndex(item => managed.has(uriOf(item)));
+      const insertion = first < 0 ? items.length : first;
+      const retained = items.filter(item => !managed.has(uriOf(item)));
+      const chosen = selectedUris.map(uri => {
+        if (previous.has(uri)) return previous.get(uri);
+        const file = selected.get(uri);
+        return { key: `selected:picker:${pickerDevice}:${uri}`, file, url: URL.createObjectURL(file) };
+      });
+      const kept = new Set([...retained, ...chosen]);
+      for (const item of items) if (!kept.has(item) && item.url) URL.revokeObjectURL(item.url);
+      retained.splice(insertion, 0, ...chosen);
+      items = retained;
     },
     remove(index) {
       if (!inRange(index)) return false;

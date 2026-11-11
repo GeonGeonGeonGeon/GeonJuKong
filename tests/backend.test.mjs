@@ -1,6 +1,126 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+async function backendFixture(t, expired = false) {
+  const storage = new Map([['geonjukong-auth', JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + (expired ? -1 : 3600000), user: { id: 'member' } })]]);
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('Unexpected request'); });
+  const previous = { window: globalThis.window, localStorage: globalThis.localStorage };
+  globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://network.test', supabaseAnonKey: 'public' } };
+  globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
+  t.after(() => Object.assign(globalThis, previous));
+  const backend = await import(`../src/backend.js?network-${crypto.randomUUID()}`);
+  return { ...backend, storage };
+}
+const flushRequests = () => new Promise(resolve => setImmediate(resolve));
+
+test('REST and google-auth bound missing responses and body reads, preserve login and allow retry', async t => {
+  const { auth, repository, storage } = await backendFixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const request of [() => repository.members(), () => auth.googleToken()]) {
+    for (const bodyOnly of [false, true]) {
+      let signal;
+      globalThis.fetch = async (_url, options) => {
+        signal = options.signal;
+        return bodyOnly ? { ok: true, status: 200, json: () => new Promise(() => {}) } : new Promise(() => {});
+      };
+      const pending = request();
+      const rejected = assert.rejects(pending, error => error.name === 'TimeoutError' && error.code === 'timeout' && error.retryable);
+      await flushRequests();
+      t.mock.timers.tick(15000);
+      await rejected;
+      assert.equal(signal.aborted, true);
+      assert.equal(auth.user.id, 'member'); assert.equal(storage.has('geonjukong-auth'), true);
+      globalThis.fetch = async () => Response.json([]);
+      assert.deepEqual(await request(), []);
+    }
+  }
+  globalThis.fetch = async () => Response.json({ error: 'upstream timeout', code: 'timeout' }, { status: 504 });
+  await assert.rejects(auth.googleToken(), { name: 'TimeoutError', code: 'timeout', retryable: true, status: 504 });
+  assert.equal(auth.user.id, 'member'); assert.equal(storage.has('geonjukong-auth'), true);
+});
+
+test('concurrent expired sessions share refresh, survive its timeout and retry together', async t => {
+  const { auth, repository, storage } = await backendFixture(t, true);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let refreshes = 0, finishOld;
+  globalThis.fetch = async url => {
+    assert.match(url, /grant_type=refresh_token/); refreshes++;
+    return new Promise(resolve => { finishOld = resolve; });
+  };
+  const first = repository.members(), second = repository.profiles();
+  const rejected = [first, second].map(pending => assert.rejects(pending, { code: 'timeout' }));
+  await flushRequests(); assert.equal(refreshes, 1);
+  t.mock.timers.tick(15000); await Promise.all(rejected);
+  assert.equal(auth.user.id, 'member');
+  globalThis.fetch = async (url, options) => {
+    if (url.includes('grant_type=refresh_token')) { refreshes++; return Response.json({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600, user: { id: 'member' } }); }
+    assert.equal(options.headers.Authorization, 'Bearer new-access'); return Response.json([]);
+  };
+  assert.deepEqual(await Promise.all([repository.members(), repository.profiles()]), [[], []]);
+  assert.equal(refreshes, 2);
+  finishOld(Response.json({ access_token: 'stale', refresh_token: 'stale', expires_in: 3600, user: { id: 'wrong' } }));
+  await flushRequests();
+  assert.equal(JSON.parse(storage.get('geonjukong-auth')).access_token, 'new-access');
+});
+
+test('cancelling one REST reader leaves the shared refresh available to another reader', async t => {
+  const { repository, auth } = await backendFixture(t, true);
+  let finishRefresh, refreshes = 0;
+  globalThis.fetch = async url => {
+    if (url.includes('grant_type=refresh_token')) { refreshes++; return new Promise(resolve => { finishRefresh = resolve; }); }
+    return Response.json([]);
+  };
+  const controller = new AbortController();
+  const cancelled = assert.rejects(repository.members({ signal: controller.signal }), { name: 'AbortError' });
+  const other = repository.profiles();
+  await flushRequests(); controller.abort(); await cancelled;
+  finishRefresh(Response.json({ access_token: 'fresh', refresh_token: 'refresh', expires_in: 3600, user: { id: 'member' } }));
+  assert.deepEqual(await other, []); assert.equal(refreshes, 1); assert.equal(auth.user.id, 'member');
+  const preAborted = new AbortController(); preAborted.abort();
+  await assert.rejects(repository.members({ signal: preAborted.signal }), { name: 'AbortError' });
+});
+
+test('REST and google-auth retry simultaneous 401s once using one refresh', async t => {
+  const { repository, auth } = await backendFixture(t);
+  let refreshes = 0, requests = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url.includes('grant_type=refresh_token')) { refreshes++; return Response.json({ access_token: 'fresh', refresh_token: 'refresh', expires_in: 3600, user: { id: 'member' } }); }
+    requests++;
+    return options.headers.Authorization === 'Bearer access' ? Response.json({}, { status: 401 }) : Response.json([]);
+  };
+  assert.deepEqual(await Promise.all([repository.members(), auth.googleToken()]), [[], []]);
+  assert.equal(refreshes, 1); assert.equal(requests, 4);
+  globalThis.fetch = async url => {
+    if (url.includes('grant_type=refresh_token')) { refreshes++; return Response.json({ access_token: 'fresh', refresh_token: 'refresh', expires_in: 3600, user: { id: 'member' } }); }
+    return Response.json({ message: 'Unauthorized' }, { status: 401 });
+  };
+  await assert.rejects(repository.members(), /Unauthorized/); assert.equal(refreshes, 2);
+});
+
+test('only a definitive invalid refresh clears stored login', async t => {
+  const { repository, auth, storage } = await backendFixture(t, true);
+  globalThis.fetch = async () => { throw new TypeError('offline'); };
+  await assert.rejects(repository.members(), /offline/);
+  assert.equal(storage.has('geonjukong-auth'), true);
+  globalThis.fetch = async () => Response.json({ msg: 'invalid refresh' }, { status: 400 });
+  await assert.rejects(repository.members(), /invalid refresh/);
+  assert.equal(auth.user, null); assert.equal(storage.has('geonjukong-auth'), false);
+});
+
+test('logout cancels a missing response and itself has a finite remote wait', async t => {
+  const { repository, auth, storage } = await backendFixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let finishOld;
+  globalThis.fetch = async url => new Promise(resolve => { if (url.includes('/rest/')) finishOld = resolve; });
+  const reader = assert.rejects(repository.members(), { name: 'AbortError' });
+  await flushRequests();
+  const logout = auth.logout(); await reader;
+  await flushRequests(); t.mock.timers.tick(15000);
+  assert.deepEqual(await logout, { remote: false });
+  finishOld(Response.json([{ id: 'late' }])); await flushRequests();
+  assert.equal(auth.user, null); assert.equal(storage.has('geonjukong-auth'), false);
+});
+
 test('bucket and profile REST writes validate input, protect versions and return persisted rows', async () => {
   const values = new Map([['geonjukong-auth', JSON.stringify({ user: { id: 'member' }, access_token: 'session', expires_at: Date.now() + 3600000 })]]);
   globalThis.window = { APP_CONFIG: { supabaseUrl: 'https://features.test', supabaseAnonKey: 'public' } };
@@ -153,6 +273,7 @@ test('logout clears local credentials despite remote failures and prevents an in
     };
     const pendingRequest = repository.list();
     const rejected = assert.rejects(pendingRequest, /세션이 종료/);
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(typeof finishRefresh, 'function');
     assert.deepEqual(await auth.logout(), { remote: true });
     finishRefresh(Response.json({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600, user: { id: 'user-1' } }));

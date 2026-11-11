@@ -64,3 +64,34 @@ test('existing image preview uses its thumbnail while saved video remains playab
   assert.match(draft.render(), /data-drive-file="thumb" data-drive-original="original"/);
   assert.match(draft.render(), /<video controls playsinline preload="metadata" data-file="movie"/);
 });
+
+test('picker reuses existing attachments in selection order, removes unchecked photos and retains unavailable originals', () => {
+  const savedUri = 'content://media/picker/saved', pendingUri = 'content://media/picker/pending', newUri = 'content://media/picker/new';
+  const saved = { id: 'saved', name: 'saved.jpg', source: 'drive', type: 'image/jpeg', pickerUri: savedUri, pickerDevice: 'this-device' };
+  const unavailable = { id: 'unavailable', name: 'unavailable.jpg', source: 'drive', type: 'image/jpeg', pickerUri: savedUri, pickerDevice: 'other-device' };
+  const draft = createMediaDraft([unavailable, saved]);
+  const pending = Object.assign(new File(['pending'], 'pending.jpg', { type: 'image/jpeg' }), { pickerUri: pendingUri, pickerDevice: 'this-device' });
+  const next = Object.assign(new File(['next'], 'next.jpg'), { pickerUri: newUri, pickerDevice: 'this-device' });
+  try {
+    draft.addFiles([pending]);
+    const pendingEntry = draft.entries()[2];
+    draft.applyPickerSelection({ files: [next], selectedUris: [pendingUri, newUri, savedUri], preselectedUris: [savedUri, pendingUri], pickerDevice: 'this-device' });
+    assert.deepEqual(draft.entries().map(item => (item.file || item.metadata).name), ['unavailable.jpg', 'pending.jpg', 'next.jpg', 'saved.jpg']);
+    assert.equal(draft.entries()[1].file, pendingEntry.file);
+    assert.equal(draft.entries()[1].url, pendingEntry.url);
+    assert.equal(draft.entries()[2].file.pickerUri, newUri);
+    assert.equal(draft.entries()[2].file.pickerDevice, 'this-device');
+    assert.equal(draft.entries()[2].file.type, 'image/jpeg');
+    assert.equal(draft.entries()[3].metadata, saved);
+    draft.applyPickerSelection({ files: [], selectedUris: [newUri, savedUri], preselectedUris: [pendingUri, newUri, savedUri], pickerDevice: 'this-device' });
+    assert.deepEqual(draft.entries().map(item => (item.file || item.metadata).name), ['unavailable.jpg', 'next.jpg', 'saved.jpg']);
+    const cards = [...draft.render().matchAll(/<li class="media-draft-item">[\s\S]*?<span class="media-order"[^>]*>(\d+)<\/span>[\s\S]*?<span class="media-draft-name"[^>]*>([^<]+)<\/span>/g)];
+    assert.deepEqual(cards.map(match => [Number(match[1]), match[2]]), [[1, 'unavailable.jpg'], [2, 'next.jpg'], [3, 'saved.jpg']]);
+    assert.throws(() => draft.applyPickerSelection({ files: [], selectedUris: ['missing'], preselectedUris: [newUri, savedUri], pickerDevice: 'this-device' }), /다시 선택/);
+    assert.equal(draft.entries().length, 3);
+    draft.applyPickerSelection({ files: [], selectedUris: [], preselectedUris: [newUri, savedUri], pickerDevice: 'this-device' });
+    assert.deepEqual(draft.entries().map(item => item.metadata), [unavailable]);
+    draft.applyPickerSelection({ files: [pending], selectedUris: [pendingUri], preselectedUris: [], pickerDevice: 'this-device' });
+    assert.equal(draft.entries()[1].file, pending);
+  } finally { draft.dispose(); }
+});

@@ -42,6 +42,7 @@ export function createPostDraft(scope, { storage = localStorage, files = local, 
         if (!item) {
           const file = entry.file;
           item = { key: entry.key, fileId: `post-draft:${crypto.randomUUID()}`, name: file.name, type: file.type, lastModified: file.lastModified };
+          if (file.pickerUri) { item.pickerUri = file.pickerUri; item.pickerDevice = file.pickerDevice; }
           selected.set(entry.key, item);
         }
         if (!pendingFiles.has(item.fileId)) {
@@ -73,6 +74,7 @@ export function createPostDraft(scope, { storage = localStorage, files = local, 
           const stored = await files.file(item.fileId);
           if (!stored?.blob) throw new Error('Missing draft file');
           const file = new File([stored.blob], item.name, { type: item.type, lastModified: item.lastModified });
+          if (item.pickerUri) { file.pickerUri = item.pickerUri; file.pickerDevice = item.pickerDevice; }
           entries.push({ key: item.key, file }); selected.set(item.key, item);
         } catch { missing.push(item.name); }
       }

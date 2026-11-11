@@ -15,6 +15,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AppBadgePlugin.class);
+        registerPlugin(OrderedMediaPickerPlugin.class);
         super.onCreate(savedInstanceState);
         keepWebViewAboveKeyboard();
     }

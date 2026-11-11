@@ -1,12 +1,23 @@
 export const previewFile = file => file?.thumbnail || file;
 
+async function previewStep(run, releaseLate = () => {}) {
+  let timer, expired = false;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(run).then(value => { if (expired) { releaseLate(value); return null; } return value; }),
+      new Promise(resolve => { timer = setTimeout(() => { expired = true; resolve(null); }, 8000); })
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
 // Originals remain untouched; an unsupported decoder simply keeps the original preview.
 export async function createThumbnail(file) {
   if (/^video\//i.test(file.type)) return videoThumbnail(file);
   if (!/^image\/(jpeg|png|webp|gif|avif)$/i.test(file.type)) return null;
   let bitmap;
   try {
-    bitmap = await createImageBitmap(file);
+    bitmap = await previewStep(() => createImageBitmap(file), value => value?.close());
+    if (!bitmap) return null;
     const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -14,7 +25,7 @@ export async function createThumbnail(file) {
     const context = canvas.getContext('2d');
     if (!context) return null;
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.72));
+    const blob = await previewStep(() => new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.72)));
     if (!blob || blob.size >= file.size) return null;
     return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.preview.${blob.type === 'image/webp' ? 'webp' : 'png'}`, { type: blob.type, lastModified: file.lastModified });
   } catch { return null; }
@@ -52,7 +63,7 @@ async function videoThumbnail(file) {
     const context = canvas.getContext('2d');
     if (!context) return null;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.72));
+    const blob = await previewStep(() => new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.72)));
     if (!blob || blob.size >= file.size) return null;
     return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.preview.${blob.type === 'image/webp' ? 'webp' : 'png'}`, { type: blob.type, lastModified: file.lastModified });
   } catch { return null; }

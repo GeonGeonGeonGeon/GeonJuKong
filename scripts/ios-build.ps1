@@ -76,7 +76,19 @@ try {
     $runId = [string]$run.databaseId
     if ($runId -notmatch '^\d+$') { throw 'The build returned an invalid run ID.' }
     & $gh run watch $runId --exit-status
-    if ($LASTEXITCODE -ne 0) { throw 'The iOS build failed. Check its GitHub Actions log.' }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Fetching failed-step logs for iOS build ${runId}..."
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $gh run view $runId --log-failed 2>&1 | Out-Host
+            $logExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = 'Stop'
+        }
+        if ($logExit -ne 0) { Write-Host 'Could not fetch the failed-step logs.' }
+        Write-Host "Open this run: gh run view $runId --web"
+        throw "The iOS build failed or could not be monitored (run $runId). View its logs with: gh run view $runId --log-failed"
+    }
 
     $destination = Join-Path $project "artifacts/ios-build-$runId"
     $ErrorActionPreference = 'Continue'
